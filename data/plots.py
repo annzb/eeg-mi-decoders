@@ -84,15 +84,25 @@ def plot_scalp(signal, channel_locations, title=None):
     plt.show()
 
 
-def plot_eeg_channel_lr(t, left_trace, right_trace, title=None):
-    left_trace = np.asarray(left_trace, dtype=float)
-    right_trace = np.asarray(right_trace, dtype=float)
-    if left_trace.ndim != 1 or right_trace.ndim != 1 or left_trace.shape != right_trace.shape:
-        raise ValueError(f"left_trace/right_trace must be 1D and same shape; got {left_trace.shape} vs {right_trace.shape}")
+def plot_eeg_channel_joint(t, channel_data, label_names=None, title=None):
+    if channel_data.ndim == 1:
+        channel_data = channel_data[None, :]
+    if channel_data.ndim != 2:
+        raise ValueError(f"`channel_data` must be 2D (n_traces, n_samples); got {channel_data.shape}")
+    n_traces, n_samples = channel_data.shape
+    if t.ndim != 1 or t.shape[0] != n_samples:
+        raise ValueError(f"`t` must be 1D with length n_samples={n_samples}; got t.shape={t.shape}")
+    if label_names is None:
+        label_names = [f"Class {i}" for i in range(n_traces)]
+    else:
+        if len(label_names) != n_traces:
+            raise ValueError(f"label_names must have length {n_traces}; got {len(label_names)}")
 
+    cmap = plt.get_cmap("tab10" if n_traces <= 10 else "tab20")
+    colors = [cmap(i % cmap.N) for i in range(n_traces)]
     plt.figure(figsize=(10, 4))
-    plt.plot(t, left_trace, label="LEFT", linewidth=1.25, color=COLOR_TEAL)
-    plt.plot(t, right_trace, label="RIGHT", linewidth=1.25, color=COLOR_PURPLE)
+    for i in range(n_traces):
+        plt.plot(t, channel_data[i], label=str(label_names[i]), linewidth=1.25, color=colors[i])
     plt.xlabel("Time (s)")
     plt.ylabel("Amplitude (µV)")
     if title:
