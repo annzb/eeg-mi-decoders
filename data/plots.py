@@ -5,11 +5,7 @@ from matplotlib.patches import Circle
 from scipy.interpolate import griddata
 
 
-COLOR_PURPLE = '#bf00ff'
-COLOR_TEAL = "#00bfbf"
-
-
-def plot_scalp(signal, channel_locations, title=None):
+def plot_scalp(signal, channel_locations, channel_names=None, title=None):
     head_radius=1.0
     grid_res=300
     robust_pct=98.0
@@ -107,13 +103,13 @@ def plot_eeg_channel_joint(t, channel_data, label_names=None, title=None):
     plt.ylabel("Amplitude (µV)")
     if title:
         plt.title(title)
-    plt.legend(frameon=False)
+    plt.legend(frameon=False, fontsize="small")
     plt.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
     plt.tight_layout()
     plt.show()
 
 
-def plot_eeg_heatmap(t, sample, channels=None, title=None):
+def plot_eeg_heatmap(t, sample, channels=None, channel_names=None, title=None):
     block_h_in = 0.1
     robust_pct=98.0
     
@@ -147,7 +143,10 @@ def plot_eeg_heatmap(t, sample, channels=None, title=None):
     )
     # ax.hlines(np.arange(1, len(channels)), xmin=t[0], xmax=t[-1], colors="k", linewidth=0.3, alpha=0.1)
     ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Channel Index")
+    if channel_names is not None:
+        ax.set_yticks(np.arange(len(channels)) + 0.5)
+        ax.set_yticklabels([channel_names[ch] for ch in channels])
+    ax.set_ylabel("Channel")
     if title:
         ax.set_title(title)
     plt.colorbar(im, ax=ax, label="Amplitude (µV)")

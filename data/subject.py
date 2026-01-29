@@ -54,11 +54,20 @@ class SubjectData(ABC):
     def labels(self) -> np.ndarray:
         return self._labels
 
+    def label_names(self) -> tuple:
+        if hasattr(self, '_label_names'):
+            return self._label_names
+        else:
+            raise AttributeError("label_names not defined")
+
     def n_trials(self) -> int:
         return self._n_trials
     
     def n_channels(self) -> int:
         return self._n_channels
+
+    def channel_names(self):
+        return None
     
     def n_samples(self) -> int:
         return self._n_samples
@@ -123,20 +132,22 @@ class SubjectData(ABC):
         index = self._validate_timestamp(index=index, timestamp=timestamp)
         trial_label = self._Y[trial]
         t = index / self._sampling_rate
-        title = f'Subject {self._subject_id}. Trial {trial}. Timestamp {t:.2f}s.'
+        title = f'Subject {self._subject_id}. Trial {trial}. Timestamp {t:.2f}s'
         plots.plot_scalp(
             signal=self._X[trial, :, index],
             channel_locations=self._electrode_locations[:, :2],
-            title=f'{title} Label: {trial_label} ({self._label_names[trial_label]})'
+            channel_names=self.channel_names(),
+            title=f'{title} [{self._label_names[trial_label]}]'
         )
         if plot_joint:
             joint_trials, joint_labels = self._find_joint_trials(trial=trial)
             for joint_trial, joint_label in zip(joint_trials, joint_labels):
-                title = f'Subject {self._subject_id}. Trial {joint_trial}. Timestamp {t:.2f}s.'
+                title = f'Subject {self._subject_id}. Trial {joint_trial}. Timestamp {t:.2f}s'
                 plots.plot_scalp(
                     signal=self._X[joint_trial, :, index],
                     channel_locations=self._electrode_locations[:, :2],
-                    title=f'{title} Label: {joint_label} ({self._label_names[joint_label]})'
+                    channel_names=self.channel_names(),
+                    title=f'{title} [{self._label_names[joint_label]}]'
                 )
 
     def plot_channel(self, trial: int, channel: int, index=None, timestamp=None):
@@ -153,29 +164,23 @@ class SubjectData(ABC):
         ], axis=0)
         label_names = [f'{self._label_names[l]} (trial {t})' for t, l in zip(trials, labels)]
 
-        title = f"Subject {self._subject_id}. Channel {channel}."
+        title = f"Subject {self._subject_id}. Channel {channel}"
         t = np.arange(trial_data.shape[1], dtype=float) / float(self._sampling_rate)
         plots.plot_eeg_channel_joint(t=t, channel_data=trial_data, label_names=label_names, title=title)
 
-    # def plot_trial(self, trial: int, channel_indices=None, side="left"):
-    #     if trial < 0 or trial >= self.n_trials:
-    #         raise IndexError(f"`trial` out of range: {trial} (valid: 0..{self.n_trials-1})")
-    #     if side not in ("left", "right"):
-    #         raise ValueError(f"`side` must be 'left' or 'right'; got {side!r}")
-
-    #     t = np.arange(self.n_samples, dtype=float) / self.sampling_rate
-    #     sample = self.X[trial, :, :] if side == "left" else self.X[trial + self.n_trials, :, :]
-    #     title = f"Subject {self.subject_id}. Trial {trial}. {side.upper()}"
-    #     plots.plot_eeg_heatmap(t, sample, title=title)
+    def plot_trial_heatmap(self, trial: int):
+        self._validate_trial(trial=trial)
+        label_name = self._label_names[self._Y[trial]]
+        t = np.arange(self._n_samples, dtype=float) / float(self._sampling_rate)
+        sample = self._X[trial, :, :]
+        title = f"Subject {self._subject_id}. Trial {trial} [{label_name}]"
+        plots.plot_eeg_heatmap(t=t, sample=sample, title=title)
 
 
 class SubjectDataDs1(SubjectData):
     def __init__(self, *args, **kwargs):
         self._label_names = ('handL', 'handR')
         super().__init__(*args, **kwargs)
-
-    def label_names(self) -> tuple:
-        return self._label_names
 
     def _post_init(self, X_left_raw: np.ndarray, X_right_raw: np.ndarray, *args, **kwargs):
         if X_left_raw.shape != X_right_raw.shape:
@@ -191,9 +196,20 @@ class SubjectDataDs1(SubjectData):
 
 class SubjectDataDs4(SubjectData):
     def __init__(self, *args, **kwargs):
-        self._label_names = ('handL', 'handR', 'passive', 'legL', 'tongue', 'legR')
+        self._label_names = ("handL", "handR", "passive", "legL", "tongue", "legR")
         super().__init__(*args, **kwargs)
 
-    def _post_init(self, X_raw: np.ndarray, *args, **kwargs):
+    def channel_names(self):
+        return (
+            "Fp1","Fp2","F3","F4","C3","C4","P3","P4","O1","O2","A1","A2",
+            "F7","F8","T3","T4","T5","T6","Fz","Cz","Pz"
+        )
+
+    def _post_init(self, X_raw: np.ndarray, y: np.ndarray, *args, **kwargs):
+        X_raw = np.asarray(X_raw, dtype=float)
+        y = np.asarray(y, dtype=int).reshape(-1)
         super()._post_init(X_raw=X_raw, *args, **kwargs)
-        # the rest of the processing from the new dataset
+        if y.shape[0] != self._n_trials:
+            raise ValueError(f"y must have length n_trials={self._n_trials}; got {y.shape[0]}")
+        self._X = filter_band(X_raw, sampling_rate=self._sampling_rate)
+        self._Y = y
