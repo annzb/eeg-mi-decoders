@@ -14,8 +14,8 @@ class Dataset1:
         self.dataset_path = Path(dataset_path)
         self.subject_data = self._load_subject_data()
 
-    def subject_filename_regex(self):
-        return re.compile(r"^s(\d+)\.mat$")
+    def filename_to_subject_id(self, filename: str):
+        return filename.split('s')[1].split('.')[0].strip()
 
     def trial_start_timestamp(self):
         return 0.5
@@ -37,18 +37,14 @@ class Dataset1:
         if not self.dataset_path.is_dir():
             raise ValueError(f"Could not find directory `{self.dataset_path}`")
 
-        matches = []
-        for p in self.dataset_path.iterdir():
-            if p.is_file():
-                m = self.subject_filename_regex().match(p.name)
-                if m:
-                    matches.append((int(m.group(1)), p))
-        if not matches:
-            raise ValueError(f"No subject files like `{self.subject_filename_regex().pattern}` found in `{self.dataset_path}`")
-
         subject_data = {}
-        for sid, p in matches:
-            subject_id = str(sid)
+        for p in self.dataset_path.iterdir():
+            if not p.is_file() or p.suffix.lower() != ".mat":
+                continue
+            subject_id = self.filename_to_subject_id(p.name)
+            if subject_id in subject_data:
+                raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
+
             mat = loadmat(p, simplify_cells=True)
             if "eeg" not in mat:
                 raise ValueError(f"`{p.name}` missing key 'eeg'")
@@ -127,9 +123,9 @@ class Dataset1:
 class Dataset4(Dataset1):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    def subject_filename_regex(self):
-        return re.compile(r".*Subject(?P<sid>[A-Z]\d+[A-Z])t.*\.mat$", re.IGNORECASE)
+    
+    def filename_to_subject_id(self, filename: str):
+        return filename.split('Subject')[1].split('6St')[0].strip()
 
     def trial_start_timestamp(self):
         return 0.0
@@ -141,20 +137,11 @@ class Dataset4(Dataset1):
         if not self.dataset_path.is_dir():
             raise ValueError(f"Could not find directory `{self.dataset_path}`")
 
-        pat = self.subject_filename_regex()
-        matches = []
-        for p in self.dataset_path.iterdir():
-            if p.is_file() and p.suffix.lower() == ".mat":
-                m = pat.match(p.name)
-                if m:
-                    sid = m.group("sid").upper()
-                    matches.append((sid, p))
-        if not matches:
-            raise ValueError(f"No subject files like `{pat.pattern}` found in `{self.dataset_path}`")
-
         subject_data = {}
-        for sid, p in sorted(matches, key=lambda x: (x[0], x[1].name)):
-            subject_id = str(sid)
+        for p in self.dataset_path.iterdir():
+            if not p.is_file() or p.suffix.lower() != ".mat":
+                continue
+            subject_id = self.filename_to_subject_id(p.name)
             if subject_id in subject_data:
                 raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
 
