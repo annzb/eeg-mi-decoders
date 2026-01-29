@@ -53,7 +53,7 @@ def plot_scalp(signal, channel_locations, title=None):
     mask = (gx**2 + gy**2) > (head_radius**2)
     zi = np.ma.array(zi, mask=mask)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_aspect("equal")
     ax.axis("off")
     im = ax.imshow(
@@ -98,8 +98,8 @@ def plot_eeg_channel_joint(t, channel_data, label_names=None, title=None):
         if len(label_names) != n_traces:
             raise ValueError(f"label_names must have length {n_traces}; got {len(label_names)}")
 
-    cmap = plt.get_cmap("tab10" if n_traces <= 10 else "tab20")
-    colors = [cmap(i % cmap.N) for i in range(n_traces)]
+    cmap = plt.get_cmap("rainbow")
+    colors = [cmap(i / n_traces) for i in range(n_traces)]
     plt.figure(figsize=(10, 4))
     for i in range(n_traces):
         plt.plot(t, channel_data[i], label=str(label_names[i]), linewidth=1.25, color=colors[i])

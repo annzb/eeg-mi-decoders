@@ -5,7 +5,7 @@ from typing import Optional
 import numpy as np
 from scipy.signal import butter, filtfilt
 
-import plots
+from data import plots
 
 
 def filter_band(X, sampling_rate, lo=8.0, hi=30.0, order=4):
@@ -127,7 +127,7 @@ class SubjectData(ABC):
         plots.plot_scalp(
             signal=self._X[trial, :, index],
             channel_locations=self._electrode_locations[:, :2],
-            title=f'{title} Label: {trial_label} ({self._label_names[trial_label].upper()})'
+            title=f'{title} Label: {trial_label} ({self._label_names[trial_label]})'
         )
         if plot_joint:
             joint_trials, joint_labels = self._find_joint_trials(trial=trial)
@@ -136,7 +136,7 @@ class SubjectData(ABC):
                 plots.plot_scalp(
                     signal=self._X[joint_trial, :, index],
                     channel_locations=self._electrode_locations[:, :2],
-                    title=f'{title} Label: {joint_label} ({self._label_names[joint_label].upper()})'
+                    title=f'{title} Label: {joint_label} ({self._label_names[joint_label]})'
                 )
 
     def plot_channel(self, trial: int, channel: int, index=None, timestamp=None):
@@ -171,7 +171,7 @@ class SubjectData(ABC):
 
 class SubjectDataDs1(SubjectData):
     def __init__(self, *args, **kwargs):
-        self._label_names = ('left', 'right')
+        self._label_names = ('handL', 'handR')
         super().__init__(*args, **kwargs)
 
     def label_names(self) -> tuple:
