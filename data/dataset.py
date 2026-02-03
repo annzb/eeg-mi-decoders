@@ -111,9 +111,9 @@ class Dataset1:
         X_parts, y_parts, g_parts = [], [], []
         for sid in subject_ids:
             subject = self.subject_data[sid]
-            X_parts.append(subject.X)
-            y_parts.append(subject.Y)
-            g_parts.append(np.full(subject.X.shape[0], subject.subject_id, dtype=np.int16))
+            X_parts.append(subject.X())
+            y_parts.append(subject.Y())
+            g_parts.append(np.full(subject.X().shape[0], subject.subject_id()))
         X = np.concatenate(X_parts, axis=0)
         y = np.concatenate(y_parts, axis=0)
         groups = np.concatenate(g_parts, axis=0)
