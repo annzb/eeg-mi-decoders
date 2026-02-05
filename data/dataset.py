@@ -90,7 +90,7 @@ class Dataset1:
                 sampling_rate=srate,
                 X_left_raw=X_left,
                 X_right_raw=X_right,
-                electrode_locations=np.asarray(eeg["psenloc"])
+                electrode_locations=electrode_locations
             )
             
         return subject_data
@@ -185,7 +185,7 @@ class Dataset4(Dataset1):
             for onset in onsets.tolist():
                 code = int(marker[onset])
                 a = onset + start
-                b = onset + end
+                b = a + win
                 if a < 0 or b > nS:
                     continue
                 X_list.append(eeg_stream[:, a:b])

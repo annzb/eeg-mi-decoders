@@ -1,3 +1,4 @@
+import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -6,6 +7,7 @@ from scipy.interpolate import griddata
 
 
 def plot_scalp(signal, channel_locations, channel_names=None, title=None):
+    figsize = 7
     head_radius=1.0
     grid_res=300
     robust_pct=98.0
@@ -20,6 +22,9 @@ def plot_scalp(signal, channel_locations, channel_names=None, title=None):
         raise ValueError(f"channel_locations must be (n_channels, 2); got {sensor_xy_raw.shape}")
     if values.ndim != 1 or values.shape[0] != sensor_xy_raw.shape[0]:
         raise ValueError(f"signal must be (n_channels,) matching locations; got {values.shape} vs {sensor_xy_raw.shape[0]}")
+    if channel_names is not None:
+        if not hasattr(channel_names, "__len__") or len(channel_names) != sensor_xy_raw.shape[0]:
+            raise ValueError(f"channel_names must have length {sensor_xy_raw.shape[0]}; got {len(channel_names)}")
 
     sensor_xy = sensor_xy_raw.copy()
     sensor_xy -= sensor_xy.mean(axis=0, keepdims=True)
@@ -49,7 +54,7 @@ def plot_scalp(signal, channel_locations, channel_names=None, title=None):
     mask = (gx**2 + gy**2) > (head_radius**2)
     zi = np.ma.array(zi, mask=mask)
 
-    fig, ax = plt.subplots(figsize=(5, 5))
+    fig, ax = plt.subplots(figsize=(figsize, figsize))
     ax.set_aspect("equal")
     ax.axis("off")
     im = ax.imshow(
@@ -69,7 +74,21 @@ def plot_scalp(signal, channel_locations, channel_names=None, title=None):
         color="k",
         linewidth=2,
     )
-    ax.scatter(sensor_xy[:, 0], sensor_xy[:, 1], c="k", s=sensor_size, linewidths=0.0, alpha=0.75)
+    if channel_names is not None:
+        for (x, y), name in zip(sensor_xy, channel_names):
+            ax.text(
+                x, y, str(name),
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+                color="white",
+                zorder=5,
+                path_effects=[pe.Stroke(linewidth=1.5, foreground="black"), pe.Normal()]
+            )
+    else:
+        ax.scatter(sensor_xy[:, 0], sensor_xy[:, 1], c="k", s=sensor_size, linewidths=0.0, alpha=0.75)
+
     cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cb.set_label("Amplitude (µV)")
     if title:
@@ -117,13 +136,16 @@ def plot_eeg_heatmap(t, sample, channels=None, channel_names=None, title=None):
     if sample.ndim != 2:
         raise ValueError(f"sample must be (n_channels, n_samples); got {sample.shape}")
 
-    n_channels, _ = sample.shape
+    n_channels = sample.shape[0]
     if channels is None:
         channels = list(range(n_channels))
     channels = sorted(list(channels))
     if any((ch < 0 or ch >= n_channels) for ch in channels):
         bad = [ch for ch in channels if ch < 0 or ch >= n_channels]
         raise IndexError(f"channels out of range 0..{n_channels-1}: {bad}")
+    if channel_names is not None:
+        if len(channel_names) != n_channels:
+            raise ValueError(f"channel_names must have length {n_channels}; got {len(channel_names)}")
 
     img = sample[channels, :]
     vmax = np.percentile(np.abs(img), robust_pct)

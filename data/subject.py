@@ -3,14 +3,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-from scipy.signal import butter, filtfilt
 
 from data import plots
-
-
-def filter_band(X, sampling_rate, lo=8.0, hi=30.0, order=4):
-    b, a = butter(order, [lo, hi], btype="bandpass", fs=sampling_rate)
-    return filtfilt(b, a, X, axis=-1)
+from models import preprocess
 
 
 class SubjectData(ABC):
@@ -28,7 +23,6 @@ class SubjectData(ABC):
         self._electrode_labels = electrode_labels
         self._post_init(*args, **kwargs)
 
-    @abstractmethod
     def _post_init(self, X_raw: np.ndarray, *args, **kwargs):
         self._labels = np.array([i for i in range(len(self._label_names))])
         self._n_trials, self._n_channels, self._n_samples = X_raw.shape
@@ -66,6 +60,7 @@ class SubjectData(ABC):
     def n_channels(self) -> int:
         return self._n_channels
 
+    @abstractmethod
     def channel_names(self):
         return None
     
@@ -164,7 +159,7 @@ class SubjectData(ABC):
         ], axis=0)
         label_names = [f'{self._label_names[l]} (trial {t})' for t, l in zip(trials, labels)]
 
-        title = f"Subject {self._subject_id}. Channel {channel}"
+        title = f"Subject {self._subject_id}. Channel {channel} [{self.channel_names()[channel]}]"
         t = np.arange(trial_data.shape[1], dtype=float) / float(self._sampling_rate)
         plots.plot_eeg_channel_joint(t=t, channel_data=trial_data, label_names=label_names, title=title)
 
@@ -182,12 +177,46 @@ class SubjectDataDs1(SubjectData):
         self._label_names = ('handL', 'handR')
         super().__init__(*args, **kwargs)
 
+    def channel_names(self):
+        return (
+            # Frontal pole
+            "Fp1", 'Fpz', "Fp2",
+
+            # Anterior frontal
+            "AF7","AF3","AFz","AF4","AF8",
+
+            # Frontal
+            "F7","F5","F3","F1","Fz","F2","F4","F6","F8",
+
+            # Frontocentral
+            'FT7', "FC5","FC3","FC1","FCz","FC2","FC4","FC6", 'FT8',
+
+            # Central
+            "T7","C5","C3","C1","Cz","C2","C4","C6","T8",
+
+            # Centroparietal
+            'TP7', "CP5","CP3","CP1","CPz","CP2","CP4","CP6", 'TP8',
+
+            # Parietal
+            'P9', "P7","P5","P3","P1","Pz","P2","P4","P6","P8", 'P10',
+
+            # Parieto-occipital
+            "PO7","PO3","POz","PO4","PO8",
+
+            # Occipital
+            "O1","Oz","O2",
+
+            # Inter-occipital
+            'Iz'
+        )
+
     def _post_init(self, X_left_raw: np.ndarray, X_right_raw: np.ndarray, *args, **kwargs):
         if X_left_raw.shape != X_right_raw.shape:
             raise ValueError(f"X_left_raw and X_right_raw must have identical shapes, got {X_left_raw.shape} vs {X_right_raw.shape}")
         X_raw = np.concatenate([X_left_raw, X_right_raw], axis=0)
         super()._post_init(X_raw=X_raw, *args, **kwargs)
-        self._X = filter_band(X_raw, sampling_rate=self._sampling_rate)
+        self._X = preprocess.common_average_reference(X_raw)
+        self._X = preprocess.filter_band(self._X, sampling_rate=self._sampling_rate)
         self._Y = np.concatenate([
             np.full(len(X_left_raw), self._labels[0]),
             np.full(len(X_right_raw), self._labels[1])
@@ -211,5 +240,6 @@ class SubjectDataDs4(SubjectData):
         super()._post_init(X_raw=X_raw, *args, **kwargs)
         if y.shape[0] != self._n_trials:
             raise ValueError(f"y must have length n_trials={self._n_trials}; got {y.shape[0]}")
-        self._X = filter_band(X_raw, sampling_rate=self._sampling_rate)
+        self._X = X_raw
+        # self._X = filter_band(X_raw, sampling_rate=self._sampling_rate)
         self._Y = y
