@@ -167,7 +167,7 @@ def plot_eeg_heatmap(t, sample, channels=None, channel_names=None, title=None):
     ax.set_xlabel("Time (s)")
     if channel_names is not None:
         ax.set_yticks(np.arange(len(channels)) + 0.5)
-        ax.set_yticklabels([channel_names[ch] for ch in channels])
+        ax.set_yticklabels([channel_names[ch] for ch in channels], fontsize=6)
     ax.set_ylabel("Channel")
     if title:
         ax.set_title(title)

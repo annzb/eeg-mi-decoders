@@ -169,7 +169,7 @@ class SubjectData(ABC):
         t = np.arange(self._n_samples, dtype=float) / float(self._sampling_rate)
         sample = self._X[trial, :, :]
         title = f"Subject {self._subject_id}. Trial {trial} [{label_name}]"
-        plots.plot_eeg_heatmap(t=t, sample=sample, title=title)
+        plots.plot_eeg_heatmap(t=t, sample=sample, title=title, channel_names=self.channel_names())
 
 
 class SubjectDataDs1(SubjectData):

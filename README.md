@@ -7,6 +7,8 @@ Sources:
 - [Dataset 8: High-Gamma Dataset](https://github.com/robintibor/high-gamma-dataset?tab=readme-ov-file)
 
 
+### Data Summary
+
 | Property           | DS1 Value    | DS4 Value    |
 |--------------------|--------------|--------------|
 | N subjects         | 52           |              |
@@ -18,4 +20,9 @@ Sources:
 | Frequency band     | 8–30 Hz      |              |
 | N classes          | 2            | 6            |
 
+
+### Evaluation Summary
+| Metric                    | DS1 Value    | DS4 Value    |
+|---------------------------|--------------|--------------|
+| Mean Accuracy Per Subject | 67% ± 13.17% |              |
 
