@@ -173,3 +173,129 @@ def plot_eeg_heatmap(t, sample, channels=None, channel_names=None, title=None):
         ax.set_title(title)
     plt.colorbar(im, ax=ax, label="Amplitude (µV)")
     plt.show()
+
+
+def plot_subject_accuracies(
+    scores: dict,
+    summary: dict | None = None,
+    show_mean_line: bool = True,
+    show_ci_band: bool = True,
+    ci_key: str = "ci95_half"
+):
+    color_above_ucl = "teal"
+    color_below_ucl = "orangered"
+    ucl_color = "dodgerblue"
+
+    if not isinstance(scores, dict) or len(scores) == 0:
+        raise ValueError("scores must be a non-empty dict from evaluation.evaluate_all_subjects().")
+
+    subj_ids = list(scores.keys())
+    means, stds, ucls = [], [], []
+    for sid in subj_ids:
+        r = scores[sid]
+        if not hasattr(r, "mean"):
+            raise ValueError("Each scores[subject] must have attribute .mean")
+        means.append(float(r.mean))
+        if hasattr(r, "std") and r.std is not None:
+            stds.append(float(r.std))
+        else:
+            stds.append(np.nan)
+        if hasattr(r, 'ucl_accuracy') and getattr(r, 'ucl_accuracy') is not None:
+            ucls.append(float(getattr(r, 'ucl_accuracy')))
+        else:
+            ucls.append(np.nan)
+
+    means = np.asarray(means, dtype=float)
+    stds = np.asarray(stds, dtype=float)
+    ucls = np.asarray(ucls, dtype=float)
+    is_fraction = np.nanmax(means) <= 1.2
+    y_label = "Accuracy" + ("" if is_fraction else " (%)")
+    order = np.argsort(means)
+    means_s = means[order]
+    stds_s = stds[order]
+    ucls_s = ucls[order]
+    x = np.arange(len(means_s))
+    has_ucl = np.isfinite(ucls_s)
+    above = has_ucl & (means_s >= ucls_s)
+    n_above = int(np.sum(above))
+    n_total = int(np.sum(has_ucl)) if np.any(has_ucl) else len(means_s)
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+
+    # Main accuracy line
+    above_mask = above.copy()
+    above_mask[~has_ucl] = False
+    colors = np.where(above_mask, color_above_ucl, color_below_ucl)
+    label_below = f'accuracy (below UCL)'
+    label_above = f'accuracy (at or above UCL)'
+    line_labeled = {"below_ucl": False, "above_ucl": False}
+    for i in range(len(means_s) - 1):
+        c = colors[i+1]
+        above_ucl = c == color_above_ucl
+        ax.plot(
+            x[i:i+2], means_s[i:i+2], linewidth=2.8, color=c, zorder=3, 
+            label=(label_above if above_ucl and not line_labeled["above_ucl"] else label_below if not line_labeled["below_ucl"] else None)
+        )
+        if above_ucl:
+            line_labeled["above_ucl"] = True
+        else:
+            line_labeled["below_ucl"] = True
+
+    # Markers colored by chunk color
+    for c in (color_below_ucl, color_above_ucl):
+        idx = np.where(colors == c)[0]
+        if idx.size:
+            ax.scatter(x[idx], means_s[idx], s=18, color=c, zorder=4)
+
+    # Per-subject repeat variability colored by chunk color
+    if np.isfinite(stds_s).any():
+        for c in (color_below_ucl, color_above_ucl):
+            idx = np.where((colors == c) & np.isfinite(stds_s))[0]
+            if idx.size:
+                ax.errorbar(x[idx], means_s[idx], yerr=stds_s[idx], fmt="none", ecolor=c, elinewidth=1.0, capsize=2, alpha=0.6, zorder=2)
+
+    # UCL thresholds
+    if np.isfinite(ucls_s).all():
+        ax.plot(x, ucls_s, linestyle=':', linewidth=1.3, color=ucl_color, zorder=2, label="UCL threshold (α=0.05)")
+    elif np.isfinite(ucls_s).any():
+        finite = np.isfinite(ucls_s)
+        idx = np.where(finite)[0]
+        runs = np.split(idx, np.where(np.diff(idx) != 1)[0] + 1)
+        for j, run in enumerate(runs):
+            ax.plot(x[run], ucls_s[run], linestyle=':', linewidth=1.3, color=ucl_color, zorder=2, label="UCL threshold (α=0.05)" if j == 0 else None)
+
+    # Mean + CI across subjects
+    mean_all = None
+    if summary is not None and "mean" in summary:
+        mean_all = float(summary["mean"])
+        if show_mean_line:
+            ax.axhline(mean_all, linestyle="--", linewidth=1.2, alpha=0.9, color='purple', label=f'{mean_all*100:.2f}% mean accuracy')
+        if show_ci_band:
+            if ci_key not in summary:
+                raise ValueError(f"summary must contain '{ci_key}' to draw CI band.")
+            ci_half = float(summary[ci_key])
+            ax.axhspan(mean_all - ci_half, mean_all + ci_half, alpha=0.15, zorder=0, color='purple', label="mean accuracy ± 95% CI")
+
+    # Title
+    title = f'Classification Accuracy'
+    if np.isfinite(ucls_s).any():
+        title += f'. Subjects ≥ UCL: {n_above}/{n_total} ({n_above/n_total*100:.2f}%)'
+    ax.set_title(title)
+    ax.set_xlabel("Subjects (sorted by accuracy)")
+    ax.set_ylabel(y_label)
+
+    n = len(means_s)
+    if n > 25:
+        ticks = np.linspace(0, n - 1, num=10, dtype=int)
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([str(t + 1) for t in ticks])
+    else:
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(i + 1) for i in x])
+    ax.grid(True, alpha=0.25)
+    ax.set_xlim(-0.5, n - 0.5)
+    ax.set_ylim((0.0, 1.0) if is_fraction else (0.0, 100.0))
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(frameon=False, loc="lower right")
+    plt.tight_layout()
+    plt.show()

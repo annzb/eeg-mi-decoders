@@ -11,8 +11,8 @@ Sources:
 
 | Property           | DS1 Value    | DS4 Value    |
 |--------------------|--------------|--------------|
-| N subjects         | 52           |              |
-| Total samples      | 10,520       |              |
+| N subjects         | 50           |              |
+| Total samples      | 10,120       |              |
 | N channels         | 64           | 21           |
 | Trial duration     | 2.0 s        |              |
 | Sampling rate      | 512 Hz       |              |
@@ -22,7 +22,7 @@ Sources:
 
 
 ### Evaluation Summary
-| Metric                    | DS1 Value    | DS4 Value    |
-|---------------------------|--------------|--------------|
-| Mean Accuracy Per Subject | 67% ± 13.17% |              |
-
+| Metric                    | DS1 Baseline Value | DS4 Value    |
+|---------------------------|--------------------|--------------|
+| Mean Accuracy Per Subject | 67% ± 13.17%       |              |
+| Discriminative Subjects   | 73%                |              |

@@ -4,6 +4,15 @@ import numpy as np
 from scipy.signal import butter, filtfilt
 
 
+def filter_highpass(X, sampling_rate, cutoff=0.5, order=4):
+    if X.ndim != 3:
+        raise ValueError(f"Expected X to have shape (N, Ch, Time), got {X.shape}")
+    if cutoff <= 0:
+        raise ValueError("cutoff frequency must be > 0")
+    b, a = butter(order, cutoff, btype="highpass", fs=sampling_rate)
+    return filtfilt(b, a, X, axis=-1)
+
+
 def filter_band(X, sampling_rate, lo=8.0, hi=30.0, order=4):
     b, a = butter(order, [lo, hi], btype="bandpass", fs=sampling_rate)
     return filtfilt(b, a, X, axis=-1)

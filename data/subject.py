@@ -26,8 +26,8 @@ class SubjectData(ABC):
     def _post_init(self, X_raw: np.ndarray, *args, **kwargs):
         self._labels = np.array([i for i in range(len(self._label_names))])
         self._n_trials, self._n_channels, self._n_samples = X_raw.shape
-        self._X_raw = X_raw
-        self._Y, self._X = np.array([]), np.array([])
+        self._X_raw, self._X = X_raw, X_raw
+        self._Y = np.array([])
         if self._electrode_locations.shape[0] != self._n_channels or self._electrode_locations.shape[1] < 2:
             raise ValueError(f"electrode_locations shape {self._electrode_locations.shape} incompatible with channels {self._n_channels}")
         if self._electrode_labels is not None and self._electrode_labels.shape[0] != self._n_channels:
@@ -173,9 +173,16 @@ class SubjectData(ABC):
 
 
 class SubjectDataDs1(SubjectData):
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self, *args,
+        preprocess_highpass: bool = True, 
+        preprocess_car: bool = True, 
+        preprocess_band: bool = True, 
+        **kwargs
+    ):
         self._label_names = ('handL', 'handR')
         super().__init__(*args, **kwargs)
+        self._preprocess(preprocess_highpass=preprocess_highpass, preprocess_car=preprocess_car, preprocess_band=preprocess_band)
 
     def channel_names(self):
         return (
@@ -215,12 +222,18 @@ class SubjectDataDs1(SubjectData):
             raise ValueError(f"X_left_raw and X_right_raw must have identical shapes, got {X_left_raw.shape} vs {X_right_raw.shape}")
         X_raw = np.concatenate([X_left_raw, X_right_raw], axis=0)
         super()._post_init(X_raw=X_raw, *args, **kwargs)
-        self._X = preprocess.common_average_reference(X_raw)
-        self._X = preprocess.filter_band(self._X, sampling_rate=self._sampling_rate)
         self._Y = np.concatenate([
             np.full(len(X_left_raw), self._labels[0]),
             np.full(len(X_right_raw), self._labels[1])
         ], axis=0)
+
+    def _preprocess(self, preprocess_highpass: bool = True, preprocess_car: bool = True, preprocess_band: bool = True):
+        if preprocess_highpass:
+            self._X = preprocess.filter_highpass(self._X, sampling_rate=self._sampling_rate, cutoff=0.5)
+        if preprocess_car:
+            self._X = preprocess.common_average_reference(self._X)
+        if preprocess_band:
+            self._X = preprocess.filter_band(self._X, sampling_rate=self._sampling_rate)
 
 
 class SubjectDataDs4(SubjectData):

@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Union
+from typing import Optional, Sequence, Union
 
 import numpy as np
 from scipy.io import loadmat
@@ -9,10 +9,23 @@ from data.subject import SubjectDataDs1, SubjectDataDs4
 
 
 class Dataset1:
-    def __init__(self, dataset_path):
+    def __init__(
+        self, dataset_path,
+        exclude_subject_ids: Optional[Sequence[str]] = None,
+        preprocess_highpass: bool = True, 
+        preprocess_car: bool = True, 
+        preprocess_band: bool = True
+    ):
+        if exclude_subject_ids is not None and not isinstance(exclude_subject_ids, Sequence):
+            raise ValueError(f"exclude_subject_ids must be a sequence, got {type(exclude_subject_ids)}")
         self._n_channels = None
         self.dataset_path = Path(dataset_path)
-        self.subject_data = self._load_subject_data()
+        self.subject_data = self._load_subject_data(
+            exclude_subject_ids=exclude_subject_ids, 
+            preprocess_highpass=preprocess_highpass, 
+            preprocess_car=preprocess_car, 
+            preprocess_band=preprocess_band
+        )
 
     def filename_to_subject_id(self, filename: str):
         return filename.split('s')[1].split('.')[0].strip()
@@ -33,10 +46,16 @@ class Dataset1:
             return self.subject_data[sid]
         raise KeyError(f'Subject {sid} not found.')
 
-    def _load_subject_data(self):
+    def _load_subject_data(
+        self, exclude_subject_ids: Optional[Sequence[str]] = None,
+        preprocess_highpass: bool = True, 
+        preprocess_car: bool = True, 
+        preprocess_band: bool = True
+    ):
         if not self.dataset_path.is_dir():
             raise ValueError(f"Could not find directory `{self.dataset_path}`")
 
+        exclude_subject_ids = set(exclude_subject_ids)
         subject_data = {}
         for p in self.dataset_path.iterdir():
             if not p.is_file() or p.suffix.lower() != ".mat":
@@ -44,6 +63,8 @@ class Dataset1:
             subject_id = self.filename_to_subject_id(p.name)
             if subject_id in subject_data:
                 raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
+            if (exclude_subject_ids is not None) and (subject_id in exclude_subject_ids):
+                continue
 
             mat = loadmat(p, simplify_cells=True)
             if "eeg" not in mat:
@@ -90,7 +111,10 @@ class Dataset1:
                 sampling_rate=srate,
                 X_left_raw=X_left,
                 X_right_raw=X_right,
-                electrode_locations=electrode_locations
+                electrode_locations=electrode_locations,
+                preprocess_highpass=preprocess_highpass,
+                preprocess_car=preprocess_car,
+                preprocess_band=preprocess_band
             )
             
         return subject_data
@@ -133,7 +157,7 @@ class Dataset4(Dataset1):
     def trial_end_timestamp(self):
         return 0.85
 
-    def _load_subject_data(self):
+    def _load_subject_data(self, exclude_subject_ids: Optional[Sequence[str]] = None):
         if not self.dataset_path.is_dir():
             raise ValueError(f"Could not find directory `{self.dataset_path}`")
 
@@ -144,6 +168,8 @@ class Dataset4(Dataset1):
             subject_id = self.filename_to_subject_id(p.name)
             if subject_id in subject_data:
                 raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
+            if exclude_subject_ids is not None and subject_id in exclude_subject_ids:
+                continue
 
             mat = loadmat(p, simplify_cells=True)
             if "o" not in mat:
