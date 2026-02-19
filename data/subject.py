@@ -17,13 +17,15 @@ class SubjectData(ABC):
         electrode_labels: Optional[np.ndarray] = None,
         *args, **kwargs
     ):
+        self._preprocessing_applied = False
+
         if not isinstance(subject_id, str):
             raise ValueError(f"subject_id must be a string, got {type(subject_id)}")
         if not isinstance(sampling_rate, int) or sampling_rate <= 0:
             raise ValueError(f"sampling_rate must be a positive integer, got {type(sampling_rate)}")
         if not isinstance(electrode_locations, np.ndarray) or electrode_locations.shape[1] < 2:
             raise ValueError(f"electrode_locations must be a numpy array with shape (n_channels, 2), got {electrode_locations.shape}")
-        if electrode_labels is not None and not isinstance(electrode_labels, np.ndarray) or electrode_labels.shape[0] != electrode_locations.shape[0]:
+        if electrode_labels is not None and (not isinstance(electrode_labels, np.ndarray) or electrode_labels.shape[0] != electrode_locations.shape[0]):
             raise ValueError(f"electrode_labels must be a numpy array with shape (n_channels,), got {electrode_labels.shape}")
             
         self._subject_id = subject_id
@@ -56,6 +58,9 @@ class SubjectData(ABC):
     @abstractmethod
     def label_names(self) -> tuple:
         raise NotImplementedError("Subclasses must implement this method")
+
+    def preprocessing_applied(self) -> bool:
+        return self._preprocessing_applied
 
     def subject_id(self) -> str:
         return self._subject_id
@@ -92,11 +97,14 @@ class SubjectData(ABC):
 
     def apply_preprocessing(
         self,
-        apply_preprocessing: Sequence[Callable] = (),
-        preprocessing_kwargs: Dict[str, Any] = {}
+        preprocessing_funcs: Sequence[Callable] = tuple(),
+        preprocessing_kwargs: Sequence[Dict[str, Any]] = tuple()
     ) -> None:
-        for preprocessing_func in apply_preprocessing:
-            self._X = preprocessing_func(self._X, **preprocessing_kwargs)
+        if not hasattr(preprocessing_funcs, '__len__') or len(preprocessing_funcs) != len(preprocessing_kwargs):
+            raise ValueError(f"preprocessing_funcs and preprocessing_kwargs must have the same length, got {len(preprocessing_funcs)} vs {len(preprocessing_kwargs)}")
+        self._preprocessing_applied = True
+        for preprocessing_func, kwargs in zip(preprocessing_funcs, preprocessing_kwargs):
+            self._X = preprocessing_func(self._X, sampling_rate=self._sampling_rate, **kwargs)
 
     def clone(self) -> 'SubjectData':
         return deepcopy(self)

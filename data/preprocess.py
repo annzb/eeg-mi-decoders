@@ -4,7 +4,7 @@ import numpy as np
 from scipy.signal import butter, filtfilt
 
 
-def filter_highpass(X, sampling_rate, cutoff=0.5, order=4):
+def filter_highpass(X, sampling_rate, cutoff=0.5, order=4, **kwargs) -> np.ndarray:
     if X.ndim != 3:
         raise ValueError(f"Expected X to have shape (N, Ch, Time), got {X.shape}")
     if cutoff <= 0:
@@ -13,12 +13,12 @@ def filter_highpass(X, sampling_rate, cutoff=0.5, order=4):
     return filtfilt(b, a, X, axis=-1)
 
 
-def filter_band(X, sampling_rate, lo=8.0, hi=30.0, order=4):
+def filter_band(X, sampling_rate, lo=8.0, hi=30.0, order=4, **kwargs) -> np.ndarray:
     b, a = butter(order, [lo, hi], btype="bandpass", fs=sampling_rate)
     return filtfilt(b, a, X, axis=-1)
 
 
-def common_average_reference(X: np.ndarray, exclude_channels: Optional[Sequence[int]] = None) -> np.ndarray:
+def common_average_reference(X: np.ndarray, exclude_channels: Optional[Sequence[int]] = None, **kwargs) -> np.ndarray:
     if X.ndim != 3:
         raise ValueError(f"Expected X to have shape (N, Ch, Time), got {X.shape}")
 

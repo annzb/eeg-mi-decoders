@@ -1,7 +1,6 @@
-import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -12,18 +11,12 @@ from data.subject import SubjectData
 class Dataset(ABC):
     def __init__(
         self, dataset_path,
-        exclude_subject_ids: Optional[Sequence[str]] = None,
-        apply_preprocessing: Sequence[Callable] = (, ),
-        preprocessing_kwargs: Dict[str, Any] = {}
+        exclude_subject_ids: Optional[Sequence[str]] = None
     ):
         self._file_extension = '.mat'
         self._n_channels = None
         self.dataset_path = Path(dataset_path)
-        self.subject_data = self._load_subject_data(
-            exclude_subject_ids=exclude_subject_ids, 
-            apply_preprocessing=apply_preprocessing,
-            preprocessing_kwargs=preprocessing_kwargs
-        )
+        self.subject_data = self._load_subject_data(exclude_subject_ids=exclude_subject_ids)
 
     @abstractmethod
     def trial_start_timestamp(self) -> float:
@@ -34,7 +27,7 @@ class Dataset(ABC):
         return 1.0
 
     @abstractmethod
-    def _read_mat_file(self, mat_file: Path) -> SubjectData:
+    def _read_mat_file(self, mat_file: Path, subject_id: str) -> SubjectData:
         raise NotImplementedError("Subclasses must implement this method")
 
     def filename_to_subject_id(self, filename: str) -> str:
@@ -52,11 +45,7 @@ class Dataset(ABC):
             return self.subject_data[sid]
         raise KeyError(f'Subject {sid} not found.')
 
-    def _load_subject_data(
-        self, exclude_subject_ids: Optional[Sequence[str]] = None,
-        apply_preprocessing: Sequence[Callable] = (, ),
-        preprocessing_kwargs: Dict[str, Any] = {}
-    ) -> Dict[str, SubjectData]:
+    def _load_subject_data(self, exclude_subject_ids: Optional[Sequence[str]] = None) -> Dict[str, SubjectData]:
         if not self.dataset_path.is_dir():
             raise ValueError(f"Could not find directory `{self.dataset_path}`")
         if exclude_subject_ids is not None and not isinstance(exclude_subject_ids, Sequence):
@@ -72,30 +61,47 @@ class Dataset(ABC):
                 raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
             if (exclude_subject_ids is not None) and (subject_id in exclude_subject_ids):
                 continue
-            subject_data[subject_id] = self._read_mat_file(p)
+            subject_data[subject_id] = self._read_mat_file(mat_file=p, subject_id=subject_id)
             
         return subject_data
 
-    def get_XY(self, subject_id: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def apply_preprocessing(
+        self, 
+        preprocessing_funcs: Sequence[Callable] = tuple(), 
+        preprocessing_kwargs: Sequence[Dict[str, Any]] = tuple()
+    ):
+        for subject in self.subject_data.values():
+            subject.apply_preprocessing(preprocessing_funcs=preprocessing_funcs, preprocessing_kwargs=preprocessing_kwargs)
+
+    def get_XY(
+        self, 
+        subject_id: Optional[str] = None,
+        preprocessing_funcs: Sequence[Callable] = tuple(), 
+        preprocessing_kwargs: Sequence[Dict[str, Any]] = tuple()
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         subject_ids = self.subject_ids()
         if subject_id is not None:
             if subject_id not in subject_ids:
                 raise KeyError(f"Subject {subject_id} not found. Available: {subject_ids}")
             subject_ids = np.array([subject_id])
 
-        X_parts, y_parts, g_parts = [], [], []
+        X_parts, Y_parts, g_parts = [], [], []
         for sid in subject_ids:
             subject = self.subject_data[sid]
-            X_parts.append(subject.X())
-            y_parts.append(subject.Y())
-            g_parts.append(np.full(subject.X().shape[0], subject.subject_id()))
+            X, Y = subject.X(), subject.Y()
+            if preprocessing_funcs:
+                for func, kwargs in zip(preprocessing_funcs, preprocessing_kwargs):
+                    X = func(X, **kwargs)
+            X_parts.append(X)
+            Y_parts.append(Y)
+            g_parts.append(np.full(X.shape[0], subject.subject_id()))
         X = np.concatenate(X_parts, axis=0)
-        y = np.concatenate(y_parts, axis=0)
+        Y = np.concatenate(Y_parts, axis=0)
         groups = np.concatenate(g_parts, axis=0)
-        return X, y, groups
+        return X, Y, groups
 
-        def print_info(self):
-            total_bytes = sum(s.X_raw().nbytes for s in self.subject_data.values())
-            print(f"Total subjects: {len(self.subject_data)}")
-            print(f"Epoch window: {self.trial_start_timestamp():.3f}–{self.trial_end_timestamp():.3f} s")
-            print(f"Total subject data: {total_bytes / 1024**2:.2f} MB")
+    def print_info(self):
+        total_bytes = sum(s.X().nbytes for s in self.subject_data.values())
+        print(f"Total subjects: {len(self.subject_data)}")
+        print(f"Epoch window: {self.trial_start_timestamp():.3f}–{self.trial_end_timestamp():.3f} s")
+        print(f"Total subject data: {total_bytes / 1024**2:.2f} MB")
