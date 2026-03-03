@@ -11,140 +11,151 @@ from models.crossval import Crossval
 from models.evaluation import SubjectEvalResult
 
 
-@dataclass(frozen=True, slots=True)
-class Ds1AblationSettings:
-    preprocess_highpass: bool = True
-    preprocess_car: bool = True
-    preprocess_band: bool = True
-    feature_extractor: fe.FeatureExtractorType = fe.FeatureExtractorType.CSP_LOGVAR
-    classifier: clf.ClassifierType = clf.ClassifierType.LDA
-    n_components: int = 4
-    reg: float = 1e-10
-    normalize_var: bool = True
-    log_var: bool = True
-
-    def __post_init__(self):
-        if not isinstance(self.preprocess_highpass, bool):
-            raise ValueError(f"preprocess_highpass must be a bool, got {self.preprocess_highpass!r}")
-        if not isinstance(self.preprocess_car, bool):
-            raise ValueError(f"preprocess_car must be a bool, got {self.preprocess_car!r}")
-        if not isinstance(self.preprocess_band, bool):
-            raise ValueError(f"preprocess_band must be a bool, got {self.preprocess_band!r}")
-        if not isinstance(self.feature_extractor, fe.FeatureExtractorType):
-            raise ValueError(f"feature_extractor must be a FeatureExtractorType, got {self.feature_extractor!r}. Allowed: {list(fe.FeatureExtractorType)}")
-        if not isinstance(self.classifier, clf.ClassifierType):
-            raise ValueError(f"classifier must be a ClassifierType, got {self.classifier!r}. Allowed: {list(clf.ClassifierType)}")
-        if not isinstance(self.n_components, int) or self.n_components <= 0:
-            raise ValueError(f"n_components must be a positive int, got {self.n_components!r}")
-        if not isinstance(self.reg, float) or not np.isfinite(self.reg) or self.reg < 0:
-            raise ValueError(f"reg must be a finite float >= 0, got {self.reg!r}")
-        if not isinstance(self.normalize_var, bool):
-            raise ValueError(f"normalize_var must be a bool, got {self.normalize_var!r}")
-        if not isinstance(self.log_var, bool):
-            raise ValueError(f"log_var must be a bool, got {self.log_var!r}")
-
 
 class Ablation:
     def __init__(
         self,
-        preprocess_highpass_values: Sequence[bool] = (True,),
-        preprocess_car_values: Sequence[bool] = (True,),
-        preprocess_band_values: Sequence[bool] = (True,),
+        # Each element is (funcs, kwargs). Default: a single empty pipeline => no preprocessing.
+        preprocessing_pipelines: Sequence[PreprocessPipeline] = ((tuple(), tuple()),),
+
         feature_extractor_values: Sequence[fe.FeatureExtractorType] = (fe.FeatureExtractorType.CSP_LOGVAR,),
         classifier_values: Sequence[clf.ClassifierType] = (clf.ClassifierType.LDA,),
+
+        # --- Feature extractor params
         n_components_values: Sequence[int] = (4,),
         reg_values: Sequence[float] = (1e-10,),
+        eps_values: Sequence[float] = (1e-12,),
         normalize_var_values: Sequence[bool] = (True,),
         log_var_values: Sequence[bool] = (True,),
+
+        # --- Classifier params
+        shrinkage_values: Sequence[bool] = (False,),
+        max_iter_values: Sequence[int] = (2000,),
+        threshold_i0_values: Sequence[int] = (0,),
+        threshold_i1_values: Sequence[int] = (1,),
     ):
+        # Validate non-empty grids (pipelines can be "empty pipeline", but the grid must not be empty)
         for name, param in (
-            ("preprocess_highpass_values", preprocess_highpass_values),
-            ("preprocess_car_values", preprocess_car_values),
-            ("preprocess_band_values", preprocess_band_values),
+            ("preprocessing_pipelines", preprocessing_pipelines),
             ("feature_extractor_values", feature_extractor_values),
             ("classifier_values", classifier_values),
             ("n_components_values", n_components_values),
             ("reg_values", reg_values),
+            ("eps_values", eps_values),
             ("normalize_var_values", normalize_var_values),
             ("log_var_values", log_var_values),
+            ("shrinkage_values", shrinkage_values),
+            ("max_iter_values", max_iter_values),
+            ("threshold_i0_values", threshold_i0_values),
+            ("threshold_i1_values", threshold_i1_values),
         ):
             if not isinstance(param, (list, tuple)) or len(param) == 0:
-                raise ValueError(f"{name} must be a non-empty list or tuple, got {type(param)} of length {len(param)}")
+                raise ValueError(f"{name} must be a non-empty list or tuple; got {type(param)} of length {len(param)}")
 
-        self._results: Dict[Ds1AblationSettings, Optional[Dict[str, SubjectEvalResult]]] = {}
-        for preprocess_highpass in preprocess_highpass_values:
-            for preprocess_car in preprocess_car_values:
-                for preprocess_band in preprocess_band_values:
-                    for feature_extractor in feature_extractor_values:
-                        for classifier in classifier_values:
-                            for n_components in n_components_values:
-                                for reg in reg_values:
-                                    for normalize_var in normalize_var_values:
-                                        for log_var in log_var_values:
-                                            settings = Ds1AblationSettings(
-                                                preprocess_highpass=preprocess_highpass, preprocess_car=preprocess_car, preprocess_band=preprocess_band,
-                                                feature_extractor=feature_extractor, classifier=classifier, n_components=n_components, reg=reg,
-                                                normalize_var=normalize_var, log_var=log_var
-                                            )
-                                            self._results[settings] = None
+        for p in preprocessing_pipelines:
+            _validate_preprocess_pipeline(p)
+
+        self._results: Dict[AblationSettings, Optional[Dict[str, SubjectEvalResult]]] = {}
+
+        for (pp_funcs, pp_kwargs) in preprocessing_pipelines:
+            for feature_extractor in feature_extractor_values:
+                for classifier in classifier_values:
+                    for csp_n_components in n_components_values:
+                        for reg in reg_values:
+                            for eps in eps_values:
+                                for normalize_var in normalize_var_values:
+                                    for log_var in log_var_values:
+                                        for lda_shrinkage in shrinkage_values:
+                                            for max_iter in max_iter_values:
+                                                for threshold_i0 in threshold_i0_values:
+                                                    for threshold_i1 in threshold_i1_values:
+                                                        settings = AblationSettings(
+                                                            preprocessing_funcs=tuple(pp_funcs),
+                                                            preprocessing_kwargs=tuple(pp_kwargs),
+                                                            feature_extractor=feature_extractor,
+                                                            classifier=classifier,
+                                                            csp_n_components=csp_n_components,
+                                                            reg=reg,
+                                                            eps=eps,
+                                                            normalize_var=normalize_var,
+                                                            log_var=log_var,
+                                                            lda_shrinkage=lda_shrinkage,
+                                                            max_iter=max_iter,
+                                                            threshold_i0=threshold_i0,
+                                                            threshold_i1=threshold_i1,
+                                                        )
+                                                        self._results[settings] = None
 
     @property
-    def results(self) -> Dict[Ds1AblationSettings, Optional[Dict[str, SubjectEvalResult]]]:
+    def results(self) -> Dict[AblationSettings, Optional[Dict[str, SubjectEvalResult]]]:
         return self._results
+
+    def _build_feature_extractor(self, settings: AblationSettings) -> fe.FeatureExtractor:
+        if settings.feature_extractor == fe.FeatureExtractorType.CSP_LOGVAR:
+            return fe.CSPLogVar(
+                csp_n_components=settings.csp_n_components,
+                reg=settings.reg,
+                eps=settings.eps,
+                normalize_var=settings.normalize_var,
+                log_var=settings.log_var,
+            )
+        if settings.feature_extractor == fe.FeatureExtractorType.CHANNEL_LOGVAR:
+            return fe.ChannelLogVar(
+                eps=settings.eps,
+                normalize_var=settings.normalize_var,
+                log_var=settings.log_var,
+            )
+        raise ValueError(f"Unhandled feature_extractor: {settings.feature_extractor}")
+
+    def _build_classifier(self, settings: AblationSettings) -> clf.Classifier:
+        if settings.classifier == clf.ClassifierType.LDA:
+            return clf.LDAClassifier(lda_shrinkage=settings.lda_shrinkage)
+        if settings.classifier == clf.ClassifierType.LOGREG:
+            return clf.LogRegClassifier(max_iter=settings.max_iter)
+        if settings.classifier == clf.ClassifierType.LINSVM:
+            return clf.LinSVMClassifier()
+        if settings.classifier == clf.ClassifierType.NEAREST_MEAN:
+            return clf.NearestMeanClassifier()
+        if settings.classifier == clf.ClassifierType.THRESHOLD:
+            return clf.ThresholdClassifier(i0=settings.threshold_i0, i1=settings.threshold_i1)
+        raise ValueError(f"Unhandled classifier: {settings.classifier}")
 
     def run(
         self,
-        settings: Ds1AblationSettings,
+        settings: AblationSettings,
         dataset_path: str,
         crossval: Crossval,
-        exclude_subject_ids: Optional[Sequence[str]] = None,
+        exclude_subject_ids: Sequence[str] = [],
     ) -> Dict[str, SubjectEvalResult]:
         if not isinstance(crossval, Crossval):
-            raise ValueError(f"crossval must be an instance of Crossval, got {type(crossval)}")
+            raise ValueError(f"crossval must be an instance of Crossval; got {type(crossval)}")
 
-        ds = Dataset1(
-            dataset_path=dataset_path,
-            exclude_subject_ids=exclude_subject_ids,
-            preprocess_highpass=settings.preprocess_highpass,
-            preprocess_car=settings.preprocess_car,
-            preprocess_band=settings.preprocess_band,
+        ds = Dataset1(dataset_path=dataset_path, exclude_subject_ids=exclude_subject_ids)
+        X, y, groups = ds.get_XY(
+            preprocessing_funcs=settings.preprocessing_funcs,
+            preprocessing_kwargs=settings.preprocessing_kwargs,
         )
-        X, y, groups = ds.get_XY()
 
-        if settings.feature_extractor == fe.FeatureExtractorType.CSP_LOGVAR:
-            feat = fe.CSPLogVar(n_components=settings.n_components, reg=settings.reg, normalize_var=settings.normalize_var, log_var=settings.log_var)
-        elif settings.feature_extractor == fe.FeatureExtractorType.CHANNEL_LOGVAR:
-            feat = fe.ChannelLogVar(normalize_var=settings.normalize_var, log_var=settings.log_var)
-        else:
-            raise ValueError(f"Unhandled feature_extractor: {settings.feature_extractor}")
-
-        if settings.classifier == clf.ClassifierType.LDA:
-            c = clf.LDAClassifier(shrinkage=False)
-        elif settings.classifier == clf.ClassifierType.SHRINKAGE_LDA:
-            c = clf.ShrinkageLDAClassifier()
-        elif settings.classifier == clf.ClassifierType.LOGREG:
-            c = clf.LogRegClassifier()
-        elif settings.classifier == clf.ClassifierType.LINSVM:
-            c = clf.LinSVMClassifier()
-        elif settings.classifier == clf.ClassifierType.NEAREST_MEAN:
-            c = clf.NearestMeanClassifier()
-        elif settings.classifier == clf.ClassifierType.THRESHOLD:
-            c = clf.ThresholdClassifier(i0=0, i1=1)
-        else:
-            raise ValueError(f"Unhandled classifier: {settings.classifier}")
-
+        feat = self._build_feature_extractor(settings)
+        c = self._build_classifier(settings)
         model = Model(feat=feat, clf=c)
+
         return crossval.evaluate_all_subjects(model=model, X=X, y=y, groups=groups)
 
     def run_all(
         self,
         dataset_path: str,
         crossval: Crossval,
-        exclude_subject_ids: Optional[Sequence[str]] = None,
+        exclude_subject_ids: Sequence[str] = [],
         skip_completed: bool = True,
-    ) -> Dict[Ds1AblationSettings, Optional[Dict[str, SubjectEvalResult]]]:
+    ) -> Dict[AblationSettings, Optional[Dict[str, SubjectEvalResult]]]:
         for settings, cur in list(self._results.items()):
             if skip_completed and cur is not None:
                 continue
-            self._results[settings] = self.run(settings=settings, dataset_path=dataset_path, crossval=crossval, exclude_subject_ids=exclude_subject_ids)
+            self._results[settings] = self.run(
+                settings=settings,
+                dataset_path=dataset_path,
+                crossval=crossval,
+                exclude_subject_ids=exclude_subject_ids,
+            )
         return self._results

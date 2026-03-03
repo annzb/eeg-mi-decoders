@@ -1,5 +1,6 @@
 # classifier.py
 from __future__ import annotations
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, Type
@@ -10,47 +11,63 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import LinearSVC
 
 
-class Classifier(Protocol):
+@dataclass(slots=True)
+class Classifier(ABC):
+    clf_: Any | None = None
+
+    @abstractmethod
     def clone(self) -> "Classifier": ...
+
+    @abstractmethod
     def fit(self, F: np.ndarray, y: np.ndarray) -> "Classifier": ...
+
+    @abstractmethod
     def predict(self, F: np.ndarray) -> np.ndarray: ...
 
 
-@dataclass
+@dataclass(slots=True)
 class LDAClassifier(Classifier):
-    shrinkage: bool = False
-
-    def clone(self) -> "LDAClassifier":
-        return LDAClassifier(shrinkage=self.shrinkage)
-
-    def fit(self, F: np.ndarray, y: np.ndarray) -> "LDAClassifier":
-        self.clf_ = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto").fit(F, y) if self.shrinkage else LinearDiscriminantAnalysis().fit(F, y)
-        return self
-
-    def predict(self, F: np.ndarray) -> np.ndarray:
-        return self.clf_.predict(F)
-
-
-@dataclass
-class LogRegClassifier(Classifier):
-    max_iter: int = 2000
+    lda_shrinkage: bool = False
 
     def __post_init__(self):
-        if not isinstance(self.max_iter, int) or self.max_iter <= 0:
-            raise ValueError(f"max_iter must be a positive int; got {self.max_iter!r}")
+        if not isinstance(self.lda_shrinkage, bool):
+            raise ValueError(f"lda_shrinkage must be a bool; got {self.lda_shrinkage!r}")
 
-    def clone(self) -> "LogRegClassifier":
-        return LogRegClassifier(max_iter=self.max_iter)
+    def clone(self) -> "LDAClassifier":
+        return LDAClassifier(lda_shrinkage=self.lda_shrinkage)
 
-    def fit(self, F: np.ndarray, y: np.ndarray) -> "LogRegClassifier":
-        self.clf_ = LogisticRegression(max_iter=self.max_iter).fit(F, y)
+    def fit(self, F: np.ndarray, y: np.ndarray) -> "LDAClassifier":
+        self.clf_ = (
+            LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto").fit(F, y)
+            if self.lda_shrinkage
+            else LinearDiscriminantAnalysis().fit(F, y)
+        )
         return self
 
     def predict(self, F: np.ndarray) -> np.ndarray:
         return self.clf_.predict(F)
 
 
-@dataclass
+@dataclass(slots=True)
+class LogRegClassifier(Classifier):
+    logreg_max_iter: int = 2000
+
+    def __post_init__(self):
+        if not isinstance(self.logreg_max_iter, int) or self.logreg_max_iter <= 0:
+            raise ValueError("logreg_max_iter must be a positive int")
+
+    def clone(self) -> "LogRegClassifier":
+        return LogRegClassifier(logreg_max_iter=self.logreg_max_iter)
+
+    def fit(self, F: np.ndarray, y: np.ndarray) -> "LogRegClassifier":
+        self.clf_ = LogisticRegression(max_iter=self.logreg_max_iter).fit(F, y)
+        return self
+
+    def predict(self, F: np.ndarray) -> np.ndarray:
+        return self.clf_.predict(F)
+
+
+@dataclass(slots=True)
 class LinSVMClassifier(Classifier):
     def clone(self) -> "LinSVMClassifier":
         return LinSVMClassifier()
@@ -63,7 +80,7 @@ class LinSVMClassifier(Classifier):
         return self.clf_.predict(F)
 
 
-@dataclass
+@dataclass(slots=True)
 class NearestMeanClassifier(Classifier):
     mu_: dict | None = None
     classes_: np.ndarray | None = None
@@ -84,21 +101,22 @@ class NearestMeanClassifier(Classifier):
         return self.classes_[np.argmin(d2, axis=1)]
 
 
-@dataclass
+@dataclass(slots=True)
 class ThresholdClassifier(Classifier):
-    i0: int = 0
-    i1: int = 1
+    threshold_i0: int = 0
+    threshold_i1: int = 1
+
     tau_: float | None = None
     classes_: np.ndarray | None = None
 
     def __post_init__(self):
-        if not isinstance(self.i0, int) or not isinstance(self.i1, int):
-            raise ValueError(f"i0 and i1 must be ints; got i0={self.i0!r}, i1={self.i1!r}")
-        if self.i0 == self.i1:
+        if not isinstance(self.threshold_i0, int) or not isinstance(self.threshold_i1, int):
+            raise ValueError(f"i0 and i1 must be ints; got i0={self.threshold_i0!r}, i1={self.threshold_i1!r}")
+        if self.threshold_i0 == self.threshold_i1:
             raise ValueError("i0 and i1 must be different feature indices.")
 
     def clone(self) -> "ThresholdClassifier":
-        return ThresholdClassifier(i0=self.i0, i1=self.i1)
+        return ThresholdClassifier(i0=self.threshold_i0, i1=self.threshold_i1)
 
     def fit(self, F: np.ndarray, y: np.ndarray) -> "ThresholdClassifier":
         self.classes_ = np.unique(y)
@@ -107,9 +125,9 @@ class ThresholdClassifier(Classifier):
         if F.ndim != 2:
             raise ValueError(f"Expected F to have shape (N, D); got {F.shape}")
         D = F.shape[1]
-        if min(self.i0, self.i1) < 0 or max(self.i0, self.i1) >= D:
-            raise ValueError(f"Feature indices out of range for D={D}: i0={self.i0}, i1={self.i1}")
-        s = F[:, self.i0] - F[:, self.i1]
+        if min(self.threshold_i0, self.threshold_i1) < 0 or max(self.threshold_i0, self.threshold_i1) >= D:
+            raise ValueError(f"Feature indices out of range for D={D}: i0={self.threshold_i0}, i1={self.threshold_i1}")
+        s = F[:, self.threshold_i0] - F[:, self.threshold_i1]
         c0, c1 = self.classes_[0], self.classes_[1]
         m0 = float(np.mean(s[y == c0])); m1 = float(np.mean(s[y == c1]))
         self.tau_ = 0.5 * (m0 + m1)
@@ -118,7 +136,7 @@ class ThresholdClassifier(Classifier):
     def predict(self, F: np.ndarray) -> np.ndarray:
         if self.tau_ is None or self.classes_ is None:
             raise RuntimeError("ThresholdClassifier is not fitted yet.")
-        s = F[:, self.i0] - F[:, self.i1]
+        s = F[:, self.threshold_i0] - F[:, self.threshold_i1]
         return np.where(s > self.tau_, self.classes_[1], self.classes_[0])
 
 

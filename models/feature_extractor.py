@@ -1,4 +1,5 @@
 from __future__ import annotations
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, Type
@@ -6,17 +7,20 @@ from typing import Protocol, Type
 import numpy as np
 
 
-class FeatureExtractor(Protocol):
-    def clone(self) -> "FeatureExtractor": ...
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "FeatureExtractor": ...
-    def transform(self, X: np.ndarray) -> np.ndarray: ...
-
-
-@dataclass
-class ChannelLogVar(FeatureExtractor):
+@dataclass(slots=True)
+class FeatureExtractor(ABC):
     eps: float = 1e-12
     normalize_var: bool = True
     log_var: bool = True
+    
+    @abstractmethod
+    def clone(self) -> "FeatureExtractor": ...
+
+    @abstractmethod
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "FeatureExtractor": ...
+
+    @abstractmethod
+    def transform(self, X: np.ndarray) -> np.ndarray: ...
 
     def __post_init__(self):
         if not isinstance(self.eps, float) or not np.isfinite(self.eps) or self.eps <= 0:
@@ -26,6 +30,9 @@ class ChannelLogVar(FeatureExtractor):
         if not isinstance(self.log_var, bool):
             raise ValueError(f"log_var must be a bool, got {self.log_var!r}")
 
+
+@dataclass(slots=True)
+class ChannelLogVar(FeatureExtractor):
     def clone(self) -> "ChannelLogVar":
         return ChannelLogVar(normalize_var=self.normalize_var, log_var=self.log_var, eps=self.eps)
 
@@ -41,31 +48,21 @@ class ChannelLogVar(FeatureExtractor):
         return np.log(var + self.eps) if self.log_var else var
 
 
-@dataclass
+@dataclass(slots=True)
 class CSPLogVar(FeatureExtractor):
-    n_components: int = 4
     reg: float = 1e-10
-    eps: float = 1e-12
-    normalize_var: bool = True
-    log_var: bool = True
+    csp_n_components: int = 4
+
     csp_filters_: list[np.ndarray] | None = None
 
     def __post_init__(self):
-        if not isinstance(self.n_components, int) or self.n_components <= 0:
-            raise ValueError(f"n_components must be a positive int; got {self.n_components!r}")
-        if self.n_components % 2 != 0:
-            raise ValueError(f"n_components must be even for CSP extremes selection; got {self.n_components}")
         if not isinstance(self.reg, float) or not np.isfinite(self.reg) or self.reg < 0:
             raise ValueError(f"reg must be finite and >= 0; got {self.reg!r}")
-        if not isinstance(self.eps, float) or not np.isfinite(self.eps) or self.eps <= 0:
-            raise ValueError(f"eps must be finite and > 0; got {self.eps!r}")
-        if not isinstance(self.normalize_var, bool):
-            raise ValueError(f"normalize_var must be a bool, got {self.normalize_var!r}")
-        if not isinstance(self.log_var, bool):
-            raise ValueError(f"log_var must be a bool, got {self.log_var!r}")
+        if not isinstance(self.csp_n_components, int) or self.csp_n_components <= 0 or self.csp_n_components % 2 != 0:
+            raise ValueError(f"csp_n_components must be a positive even int; got {self.csp_n_components!r}")
 
     def clone(self) -> "CSPLogVar":
-        return CSPLogVar(n_components=self.n_components, reg=self.reg, normalize_var=self.normalize_var, log_var=self.log_var, eps=self.eps)
+        return CSPLogVar(csp_n_components=self.csp_n_components, reg=self.reg, normalize_var=self.normalize_var, log_var=self.log_var, eps=self.eps)
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "CSPLogVar":
         if X.ndim != 3:
@@ -125,7 +122,7 @@ class CSPLogVar(FeatureExtractor):
         evals, evecs = np.linalg.eig(np.linalg.solve(Cc, C0))
         evals, evecs = np.real(evals), np.real(evecs)
         evecs = evecs[:, np.argsort(evals)]
-        k2 = self.n_components // 2
+        k2 = self.csp_n_components // 2
         return np.concatenate([evecs[:, :k2], evecs[:, -k2:]], axis=1)
 
 

@@ -4,9 +4,9 @@ from typing import Iterator, Optional, Sequence, Tuple, Literal
 
 import numpy as np
 
-from models import metrics
-from models.evaluation import SubjectEvalResult
-from models.model import Model
+from evaluation import metrics
+from evaluation.utils import SubjectEvalResult
+from models import Model
 
 
 Split = Tuple[np.ndarray, np.ndarray]

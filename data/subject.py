@@ -5,6 +5,7 @@ from typing import Any, Optional, Callable, Dict, Sequence
 import numpy as np
 
 from data import plots
+from data.preprocess import PreprocessPipeline, validate_preprocess_pipeline
 
 
 class SubjectData(ABC):
@@ -47,9 +48,12 @@ class SubjectData(ABC):
         )
         return Y
 
-    @abstractmethod
     def _format_X(self, X_raw: Any) -> np.ndarray:
-        raise NotImplementedError("Subclasses must implement this method")
+        try:
+            X = np.asarray(X_raw)
+        except Exception as e:
+            raise ValueError(f"Failed to convert X_raw to numpy array: {e}")
+        return X
 
     @abstractmethod
     def channel_names(self) -> tuple:
@@ -95,16 +99,11 @@ class SubjectData(ABC):
     def Y(self) -> np.ndarray:
         return self._Y
 
-    def apply_preprocessing(
-        self,
-        preprocessing_funcs: Sequence[Callable] = tuple(),
-        preprocessing_kwargs: Sequence[Dict[str, Any]] = tuple()
-    ) -> None:
-        if not hasattr(preprocessing_funcs, '__len__') or len(preprocessing_funcs) != len(preprocessing_kwargs):
-            raise ValueError(f"preprocessing_funcs and preprocessing_kwargs must have the same length, got {len(preprocessing_funcs)} vs {len(preprocessing_kwargs)}")
+    def apply_preprocessing(self, pipeline: PreprocessPipeline) -> None:
+        validate_preprocess_pipeline(pipeline)
         self._preprocessing_applied = True
-        for preprocessing_func, kwargs in zip(preprocessing_funcs, preprocessing_kwargs):
-            self._X = preprocessing_func(self._X, sampling_rate=self._sampling_rate, **kwargs)
+        for func, kwargs in zip(pipeline[0], pipeline[1]):
+            self._X = func(self._X, sampling_rate=self._sampling_rate, **kwargs)
 
     def clone(self) -> 'SubjectData':
         return deepcopy(self)

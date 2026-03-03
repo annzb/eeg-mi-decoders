@@ -6,12 +6,13 @@ import numpy as np
 
 from data import const
 from data.subject import SubjectData
+from data.preprocess import PreprocessPipeline, validate_preprocess_pipeline
 
 
 class Dataset(ABC):
     def __init__(
         self, dataset_path,
-        exclude_subject_ids: Optional[Sequence[str]] = None
+        exclude_subject_ids: Sequence[str] = []
     ):
         self._file_extension = '.mat'
         self._n_channels = None
@@ -45,10 +46,10 @@ class Dataset(ABC):
             return self.subject_data[sid]
         raise KeyError(f'Subject {sid} not found.')
 
-    def _load_subject_data(self, exclude_subject_ids: Optional[Sequence[str]] = None) -> Dict[str, SubjectData]:
+    def _load_subject_data(self, exclude_subject_ids: Sequence[str] = []) -> Dict[str, SubjectData]:
         if not self.dataset_path.is_dir():
             raise ValueError(f"Could not find directory `{self.dataset_path}`")
-        if exclude_subject_ids is not None and not isinstance(exclude_subject_ids, Sequence):
+        if not hasattr(exclude_subject_ids, '__len__'):
             raise ValueError(f"exclude_subject_ids must be a sequence, got {type(exclude_subject_ids)}")
 
         exclude_subject_ids = set(exclude_subject_ids)
@@ -65,32 +66,29 @@ class Dataset(ABC):
             
         return subject_data
 
-    def apply_preprocessing(
-        self, 
-        preprocessing_funcs: Sequence[Callable] = tuple(), 
-        preprocessing_kwargs: Sequence[Dict[str, Any]] = tuple()
-    ):
+    def apply_preprocessing(self, pipeline: PreprocessPipeline):
         for subject in self.subject_data.values():
-            subject.apply_preprocessing(preprocessing_funcs=preprocessing_funcs, preprocessing_kwargs=preprocessing_kwargs)
+            subject.apply_preprocessing(pipeline=pipeline)
 
     def get_XY(
         self, 
-        subject_id: Optional[str] = None,
-        preprocessing_funcs: Sequence[Callable] = tuple(), 
-        preprocessing_kwargs: Sequence[Dict[str, Any]] = tuple()
+        subject_id: Optional[str] = None, 
+        preprocess_pipeline: Optional[PreprocessPipeline] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         subject_ids = self.subject_ids()
         if subject_id is not None:
             if subject_id not in subject_ids:
                 raise KeyError(f"Subject {subject_id} not found. Available: {subject_ids}")
             subject_ids = np.array([subject_id])
+        if preprocess_pipeline is not None:
+            validate_preprocess_pipeline(preprocess_pipeline)
 
         X_parts, Y_parts, g_parts = [], [], []
         for sid in subject_ids:
             subject = self.subject_data[sid]
             X, Y = subject.X(), subject.Y()
-            if preprocessing_funcs:
-                for func, kwargs in zip(preprocessing_funcs, preprocessing_kwargs):
+            if preprocess_pipeline:
+                for func, kwargs in zip(preprocess_pipeline[0], preprocess_pipeline[1]):
                     X = func(X, **kwargs)
             X_parts.append(X)
             Y_parts.append(Y)

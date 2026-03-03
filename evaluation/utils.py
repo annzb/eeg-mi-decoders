@@ -5,8 +5,8 @@ from typing import Dict, Iterable, Tuple
 import numpy as np
 from scipy.stats import binom
 
-from models import metrics
-from models.model import Model
+from evaluation import metrics
+from models import Model
 
 
 @dataclass

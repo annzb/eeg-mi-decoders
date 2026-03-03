@@ -1,10 +1,7 @@
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
-from data import plots
 from data.subject import SubjectData
 
 
@@ -54,12 +51,3 @@ class SubjectDataDs1(SubjectData):
             raise ValueError(f"X_left_raw and X_right_raw must be numpy arrays with identical shapes, got {X_left_raw.shape} vs {X_right_raw.shape}")
         X = np.concatenate([X_left_raw, X_right_raw], axis=0)
         return X
-
-
-    # def _preprocess(self, preprocess_highpass: bool = True, preprocess_car: bool = True, preprocess_band: bool = True):
-    #     if preprocess_highpass:
-    #         self._X = preprocess.filter_highpass(self._X, sampling_rate=self._sampling_rate, cutoff=0.5)
-    #     if preprocess_car:
-    #         self._X = preprocess.common_average_reference(self._X)
-    #     if preprocess_band:
-    #         self._X = preprocess.filter_band(self._X, sampling_rate=self._sampling_rate)
