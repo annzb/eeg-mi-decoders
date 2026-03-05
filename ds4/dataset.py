@@ -77,6 +77,7 @@ class Dataset4(Dataset):
 
         return SubjectDataDs4(
             X_raw=X_raw,
+            Y_raw=y,
             subject_id=subject_id,
             sampling_rate=srate,
             electrode_locations=electrode_locations,

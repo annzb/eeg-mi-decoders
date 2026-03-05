@@ -6,8 +6,8 @@ import numpy as np
 
 from data import Dataset, PreprocessPipeline, validate_preprocess_pipeline
 from models import ClassifierType, FeatureExtractorType, Model
-from evaluation.crossval import Crossval
-from evaluation.utils import SubjectEvalResult
+from evaluation.split import Split
+from evaluation.result import SubjectEvalResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,17 +160,17 @@ class Ablation:
         self,
         settings: AblationSettings,
         dataset: Dataset,
-        crossval: Crossval
+        split: Split
     ) -> Dict[str, SubjectEvalResult]:
         if not isinstance(settings, AblationSettings):
             raise ValueError(f"settings must be an instance of AblationSettings; got {type(settings)}")
         if not isinstance(dataset, Dataset):
             raise ValueError(f"dataset must be an instance of Dataset; got {type(dataset)}")
-        if not isinstance(crossval, Crossval):
-            raise ValueError(f"crossval must be an instance of Crossval; got {type(crossval)}")
+        if not isinstance(split, Split):
+            raise ValueError(f"split must be an instance of Split; got {type(split)}")
 
         X, y, groups = dataset.get_XY(preprocess_pipeline=settings.preprocess_pipeline)
-        return crossval.evaluate_all_subjects(model=model, X=X, y=y, groups=groups)
+        return split.evaluate_all_subjects(model=model, X=X, y=y, groups=groups)
 
     def evaluate_all_settings(
         self,

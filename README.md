@@ -9,20 +9,20 @@ Sources:
 
 ### Data Summary
 
-| Property           | DS1 Value    | DS4 Value    |
-|--------------------|--------------|--------------|
-| N subjects         | 50           |              |
-| Total samples      | 10,120       |              |
-| N channels         | 64           | 21           |
-| Trial duration     | 2.0 s        |              |
-| Sampling rate      | 512 Hz       |              |
-| Sample size        | 65,536       | 3,570        |
-| Frequency band     | 8–30 Hz      |              |
-| N classes          | 2            | 6            |
+| Property           | DS1 Value    | DS4 HaLT Value |
+|--------------------|--------------|----------------|
+| N subjects         | 50           | 12             |
+| Total samples      | 10,120       |                |
+| N channels         | 64           | 21             |
+| Trial duration     | 2.0 s        | 0.85 s         |
+| Sampling rate      | 512 Hz       |                |
+| Sample size        | 65,536       | 3,570          |
+| Frequency band     | 8–30 Hz      |                |
+| N classes          | 2            | 6              |
 
 
 ### Evaluation Summary
-| Metric                    | DS1 Baseline Value | DS4 Value    |
-|---------------------------|--------------------|--------------|
-| Mean Accuracy Per Subject | 67% ± 13.17%       |              |
-| Discriminative Subjects   | 73%                |              |
+| Metric                    | DS1 Baseline Value | DS4 HaLT Baseline Value |
+|---------------------------|--------------------|-------------------------|
+| Mean Accuracy Per Subject | 67% ± 13.17%       | 57% ± 20%               |
+| Discriminative Subjects   | 73%                | 83%                     |

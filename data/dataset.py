@@ -72,19 +72,31 @@ class Dataset(ABC):
 
     def get_XY(
         self, 
-        subject_id: Optional[str] = None, 
+        subject_ids: Optional[Sequence[str]] = None, 
         preprocess_pipeline: Optional[PreprocessPipeline] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        subject_ids = self.subject_ids()
-        if subject_id is not None:
-            if subject_id not in subject_ids:
-                raise KeyError(f"Subject {subject_id} not found. Available: {subject_ids}")
-            subject_ids = np.array([subject_id])
+        all_subject_ids = self.subject_ids()
+        if subject_ids is None:
+            target_ids = all_subject_ids
+        elif not hasattr(subject_ids, '__len__'):
+            raise ValueError(f"subject_ids must be a sequence, got {type(subject_ids)}")
+        else:
+            target_ids = []
+            for sid in subject_ids:
+                try:
+                    sid_str = str(sid)
+                except Exception as e:
+                    raise ValueError(f"Failed to convert subject id {sid} to string: {e}")
+                if sid_str not in all_subject_ids:
+                    raise KeyError(f"Subject {sid_str} not found. Available: {all_subject_ids}")
+                target_ids.append(sid_str)
+            target_ids = np.array(target_ids)
+
         if preprocess_pipeline is not None:
             validate_preprocess_pipeline(preprocess_pipeline)
 
         X_parts, Y_parts, g_parts = [], [], []
-        for sid in subject_ids:
+        for sid in target_ids:
             subject = self.subject_data[sid]
             X, Y = subject.X(), subject.Y()
             if preprocess_pipeline:

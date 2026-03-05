@@ -1,3 +1,4 @@
-from evaluation.ablation import Ablation, AblationSettings
-from evaluation.crossval import Crossval
-from evaluation.utils import SubjectEvalResult, summarize_subject_means
+# from evaluation.ablation import Ablation, AblationSettings
+from evaluation.evaluator import Evaluator
+from evaluation.result import DatasetEvalResult, SubjectEvalResult
+from evaluation.split import Split

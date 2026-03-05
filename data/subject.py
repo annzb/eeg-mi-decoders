@@ -15,6 +15,7 @@ class SubjectData(ABC):
         subject_id: str, 
         sampling_rate: int, 
         electrode_locations: np.ndarray,
+        Y_raw: Optional[Any] = None,
         electrode_labels: Optional[np.ndarray] = None,
         *args, **kwargs
     ):
@@ -38,15 +39,7 @@ class SubjectData(ABC):
         self._n_trials, self._n_channels, self._n_samples = self._X.shape
         self._labels = np.array([i for i in range(len(self.label_names()))])
         self._n_classes = len(self._labels)
-        self._Y = self._make_labels()
-
-    def _make_labels(self) -> np.ndarray:
-        trials_per_label, leftover_trials = divmod(self._n_trials, self._n_classes)
-        Y = np.repeat(
-            np.arange(self._n_classes),
-            np.full(self._n_classes, trials_per_label) + (np.arange(self._n_classes) < leftover_trials)
-        )
-        return Y
+        self._Y = self._make_labels(Y_raw=Y_raw)
 
     def _format_X(self, X_raw: Any) -> np.ndarray:
         try:
@@ -54,6 +47,32 @@ class SubjectData(ABC):
         except Exception as e:
             raise ValueError(f"Failed to convert X_raw to numpy array: {e}")
         return X
+
+    def _make_labels(self, Y_raw: Optional[Any] = None) -> np.ndarray:
+        if Y_raw is not None:
+            try:
+                Y = np.asarray(Y_raw)
+            except Exception as e:
+                raise ValueError(f"Failed to convert Y_raw to numpy array: {e}")
+            if Y.ndim != 1:
+                raise ValueError(f"Y_raw must be flat; got shape={Y.shape!r}")
+            if Y.size != self._n_trials:
+                raise ValueError(f"Y_raw length mismatch: expected n_trials={self._n_trials}, got {Y.size}")
+            try:
+                Y = Y.astype(np.int64, copy=False)
+            except Exception as e:
+                raise ValueError(f"Failed to convert Y_raw to numpy array: {e}")
+            labels = np.unique(Y)
+            if labels.size != self._n_classes:
+                raise ValueError(f"Y_raw has {labels.size} unique values, expected {self._n_classes}")
+            return Y
+
+        trials_per_label, leftover_trials = divmod(self._n_trials, self._n_classes)
+        Y = np.repeat(
+            np.arange(self._n_classes),
+            np.full(self._n_classes, trials_per_label) + (np.arange(self._n_classes) < leftover_trials),
+        )
+        return Y.astype(np.int64, copy=False)
 
     @abstractmethod
     def channel_names(self) -> tuple:

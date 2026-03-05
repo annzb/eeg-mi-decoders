@@ -8,7 +8,7 @@ from typing import Protocol, Type
 import numpy as np
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import LinearSVC
+from sklearn.svm import LinearSVC, SVC
 
 
 @dataclass(slots=True)
@@ -24,6 +24,18 @@ class Classifier(ABC):
     @abstractmethod
     def predict(self, F: np.ndarray) -> np.ndarray: ...
 
+    def _validate_fit_input(self, F: np.ndarray, y: np.ndarray) -> None:
+        if not isinstance(F, np.ndarray):
+            raise ValueError(f"Expected F to be a numpy array; got {type(F)}")
+        if not isinstance(y, np.ndarray) or y.ndim != 1:
+            raise ValueError(f"Expected y to have shape (N,); got {y.shape}")
+        if F.shape[0] != y.shape[0]:
+            raise ValueError(f"F and y must have the same length; got {F.shape[0]} vs {y.shape[0]}")
+
+    def _validate_predict_input(self, F: np.ndarray) -> None:
+        if not isinstance(F, np.ndarray):
+            raise ValueError(f"Expected F to be a numpy array; got {type(F)}")
+
 
 @dataclass(slots=True)
 class LDAClassifier(Classifier):
@@ -37,6 +49,7 @@ class LDAClassifier(Classifier):
         return LDAClassifier(lda_shrinkage=self.lda_shrinkage)
 
     def fit(self, F: np.ndarray, y: np.ndarray) -> "LDAClassifier":
+        self._validate_fit_input(F, y)
         self.clf_ = (
             LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto").fit(F, y)
             if self.lda_shrinkage
@@ -45,6 +58,7 @@ class LDAClassifier(Classifier):
         return self
 
     def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
         return self.clf_.predict(F)
 
 
@@ -60,10 +74,12 @@ class LogRegClassifier(Classifier):
         return LogRegClassifier(logreg_max_iter=self.logreg_max_iter)
 
     def fit(self, F: np.ndarray, y: np.ndarray) -> "LogRegClassifier":
+        self._validate_fit_input(F, y)
         self.clf_ = LogisticRegression(max_iter=self.logreg_max_iter).fit(F, y)
         return self
 
     def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
         return self.clf_.predict(F)
 
 
@@ -73,10 +89,12 @@ class LinSVMClassifier(Classifier):
         return LinSVMClassifier()
 
     def fit(self, F: np.ndarray, y: np.ndarray) -> "LinSVMClassifier":
+        self._validate_fit_input(F, y)
         self.clf_ = LinearSVC(dual="auto").fit(F, y)
         return self
 
     def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
         return self.clf_.predict(F)
 
 
@@ -89,11 +107,13 @@ class NearestMeanClassifier(Classifier):
         return NearestMeanClassifier()
 
     def fit(self, F: np.ndarray, y: np.ndarray) -> "NearestMeanClassifier":
+        self._validate_fit_input(F, y)
         self.classes_ = np.unique(y)
         self.mu_ = {c: F[y == c].mean(axis=0) for c in self.classes_}
         return self
 
     def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
         if self.mu_ is None or self.classes_ is None:
             raise RuntimeError("NearestMeanClassifier is not fitted yet.")
         mus = np.stack([self.mu_[c] for c in self.classes_], axis=0)
@@ -119,11 +139,10 @@ class ThresholdClassifier(Classifier):
         return ThresholdClassifier(i0=self.threshold_i0, i1=self.threshold_i1)
 
     def fit(self, F: np.ndarray, y: np.ndarray) -> "ThresholdClassifier":
+        self._validate_fit_input(F, y)
         self.classes_ = np.unique(y)
         if len(self.classes_) != 2:
             raise ValueError("ThresholdClassifier expects exactly 2 classes.")
-        if F.ndim != 2:
-            raise ValueError(f"Expected F to have shape (N, D); got {F.shape}")
         D = F.shape[1]
         if min(self.threshold_i0, self.threshold_i1) < 0 or max(self.threshold_i0, self.threshold_i1) >= D:
             raise ValueError(f"Feature indices out of range for D={D}: i0={self.threshold_i0}, i1={self.threshold_i1}")
@@ -134,10 +153,63 @@ class ThresholdClassifier(Classifier):
         return self
 
     def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
         if self.tau_ is None or self.classes_ is None:
             raise RuntimeError("ThresholdClassifier is not fitted yet.")
         s = F[:, self.threshold_i0] - F[:, self.threshold_i1]
         return np.where(s > self.tau_, self.classes_[1], self.classes_[0])
+
+
+@dataclass(slots=True)
+class VotingSVMClassifier(Classifier):
+    svm_C: float = 1.0
+    svm_kernel: str = "linear"
+    svm_decision_function_shape: str = "ovo"
+    svm_gamma: str | float = "scale"
+    svm_degree: int = 3
+
+    def __post_init__(self):
+        if not isinstance(self.svm_C, (int, float)) or not np.isfinite(self.svm_C) or self.svm_C <= 0:
+            raise ValueError(f"svm_C must be finite and > 0; got {self.svm_C!r}")
+        if self.svm_kernel not in ("linear", "rbf", "poly", "sigmoid"):
+            raise ValueError(f"svm_kernel must be one of linear/rbf/poly/sigmoid; got {self.svm_kernel!r}")
+        if self.svm_decision_function_shape not in ("ovo", "ovr"):
+            raise ValueError(f"svm_decision_function_shape must be 'ovo' or 'ovr'; got {self.svm_decision_function_shape!r}")
+        if not (isinstance(self.svm_gamma, (int, float)) or self.svm_gamma in ("scale", "auto")):
+            raise ValueError(f"svm_gamma must be a number or 'scale'/'auto'; got {self.svm_gamma!r}")
+        if isinstance(self.svm_gamma, (int, float)) and (not np.isfinite(self.svm_gamma) or self.svm_gamma <= 0):
+            raise ValueError(f"svm_gamma must be finite and > 0; got {self.svm_gamma!r}")
+        if not isinstance(self.svm_degree, int) or self.svm_degree <= 0:
+            raise ValueError(f"svm_degree must be a positive int; got {self.svm_degree!r}")
+
+    def clone(self) -> "VotingSVMClassifier":
+        return VotingSVMClassifier(
+            svm_C=self.svm_C,
+            svm_kernel=self.svm_kernel,
+            svm_decision_function_shape=self.svm_decision_function_shape,
+            svm_gamma=self.svm_gamma,
+            svm_degree=self.svm_degree,
+        )
+
+    def fit(self, F: np.ndarray, y: np.ndarray) -> "VotingSVMClassifier":
+        self._validate_fit_input(F, y)
+        y = np.asarray(y)
+        if y.ndim != 1 or y.shape[0] != F.shape[0]:
+            raise ValueError(f"Expected y to have shape (N,); got {y.shape} for N={F.shape[0]}")
+        self.clf_ = SVC(
+            C=float(self.svm_C),
+            kernel=self.svm_kernel,
+            decision_function_shape=self.svm_decision_function_shape,
+            gamma=self.svm_gamma,
+            degree=self.svm_degree,
+        ).fit(F, y)
+        return self
+
+    def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
+        if self.clf_ is None:
+            raise RuntimeError("VotingSVMClassifier is not fitted yet.")
+        return self.clf_.predict(F)
 
 
 class ClassifierType(Enum):
@@ -146,6 +218,7 @@ class ClassifierType(Enum):
     LINSVM = LinSVMClassifier
     NEAREST_MEAN = NearestMeanClassifier
     THRESHOLD = ThresholdClassifier
+    VOTING_SVM = VotingSVMClassifier
 
     @property
     def cls(self) -> Type[Classifier]:

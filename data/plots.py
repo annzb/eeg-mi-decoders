@@ -5,6 +5,8 @@ import numpy as np
 from matplotlib.patches import Circle
 from scipy.interpolate import griddata
 
+from evaluation.result import DatasetEvalResult, Score
+
 
 def plot_scalp(signal, channel_locations, channel_names=None, title=None):
     figsize = 7
@@ -176,38 +178,36 @@ def plot_eeg_heatmap(t, sample, channels=None, channel_names=None, title=None):
 
 
 def plot_subject_accuracies(
-    scores: dict,
-    summary: dict | None = None,
+    scores: DatasetEvalResult,
+    mode: str = "train",
     show_mean_line: bool = True,
-    show_ci_band: bool = True,
-    ci_key: str = "ci95_half"
+    show_ci_band: bool = True
 ):
     color_above_ucl = "teal"
     color_below_ucl = "orangered"
     ucl_color = "dodgerblue"
+    modes = {"train", "val", "test"}
 
-    if not isinstance(scores, dict) or len(scores) == 0:
-        raise ValueError("scores must be a non-empty dict from evaluation.evaluate_all_subjects().")
+    if not isinstance(scores, DatasetEvalResult):
+        raise ValueError("scores must be a DatasetEvalResult instance; got {type(scores)}")
+        
+    if mode == "train":
+        mode_scores = scores.get_train_scores_per_subject()
+        total_score = scores.train
+    elif mode == "val":
+        mode_scores = scores.get_val_scores_per_subject()
+        total_score = scores.val
+    elif mode == "test":
+        mode_scores = scores.get_test_scores_per_subject()
+        total_score = scores.test
+    else:
+        raise ValueError("mode must be one of {modes}; got {mode!r}")
+    if not isinstance(total_score, Score):
+        raise ValueError("total_score must be a Score instance; got {type(total_score)}")
 
-    subj_ids = list(scores.keys())
-    means, stds, ucls = [], [], []
-    for sid in subj_ids:
-        r = scores[sid]
-        if not hasattr(r, "mean"):
-            raise ValueError("Each scores[subject] must have attribute .mean")
-        means.append(float(r.mean))
-        if hasattr(r, "std") and r.std is not None:
-            stds.append(float(r.std))
-        else:
-            stds.append(np.nan)
-        if hasattr(r, 'ucl_accuracy') and getattr(r, 'ucl_accuracy') is not None:
-            ucls.append(float(getattr(r, 'ucl_accuracy')))
-        else:
-            ucls.append(np.nan)
-
-    means = np.asarray(means, dtype=float)
-    stds = np.asarray(stds, dtype=float)
-    ucls = np.asarray(ucls, dtype=float)
+    means = np.asarray([score.acc_mean() for score in mode_scores.values()])
+    stds = np.asarray([score.acc_std() for score in mode_scores.values()])
+    ucls = np.asarray(list(scores.get_ucl_per_subject().values()))
     is_fraction = np.nanmax(means) <= 1.2
     y_label = "Accuracy" + ("" if is_fraction else " (%)")
     order = np.argsort(means)
@@ -231,9 +231,18 @@ def plot_subject_accuracies(
     for i in range(len(means_s) - 1):
         c = colors[i+1]
         above_ucl = c == color_above_ucl
+        prev_above = (colors[i] == color_above_ucl) if i > 0 else None
+        entering = (prev_above is None) or (above_ucl != prev_above)
+        label = None
+        if entering:
+            if above_ucl and not line_labeled["above_ucl"]:
+                label = label_above
+            elif (not above_ucl) and not line_labeled["below_ucl"]:
+                label = label_below
         ax.plot(
-            x[i:i+2], means_s[i:i+2], linewidth=2.8, color=c, zorder=3, 
-            label=(label_above if above_ucl and not line_labeled["above_ucl"] else label_below if not line_labeled["below_ucl"] else None)
+            x[i:i+2], means_s[i:i+2],
+            linewidth=2.8, color=c, zorder=3,
+            label=label
         )
         if above_ucl:
             line_labeled["above_ucl"] = True
@@ -265,14 +274,14 @@ def plot_subject_accuracies(
 
     # Mean + CI across subjects
     mean_all = None
-    if summary is not None and "mean" in summary:
-        mean_all = float(summary["mean"])
+    if total_score.acc_mean() is not None:
+        mean_all = total_score.acc_mean()
         if show_mean_line:
             ax.axhline(mean_all, linestyle="--", linewidth=1.2, alpha=0.9, color='purple', label=f'{mean_all*100:.2f}% mean accuracy')
         if show_ci_band:
-            if ci_key not in summary:
-                raise ValueError(f"summary must contain '{ci_key}' to draw CI band.")
-            ci_half = float(summary[ci_key])
+            if total_score.acc_ci95_half() is None:
+                raise ValueError(f"total_score.acc_ci95_half() is None, cannot draw CI band.")
+            ci_half = total_score.acc_ci95_half()
             ax.axhspan(mean_all - ci_half, mean_all + ci_half, alpha=0.15, zorder=0, color='purple', label="mean accuracy ± 95% CI")
 
     # Title
