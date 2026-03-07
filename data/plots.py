@@ -308,3 +308,103 @@ def plot_subject_accuracies(
         ax.legend(frameon=False, loc="lower right")
     plt.tight_layout()
     plt.show()
+
+
+def plot_confusion_matrix(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    label_names: list[str] | None = None,
+    labels: np.ndarray | list | None = None,
+    normalize: str | None = "true",   # None | "true" | "pred" | "all"
+    title: str | None = None,
+    show_values: bool = True,
+    value_fmt: str | None = None
+):
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    if y_true.ndim != 1 or y_pred.ndim != 1:
+        raise ValueError(f"y_true and y_pred must be 1D; got {y_true.shape} and {y_pred.shape}")
+    if y_true.shape[0] != y_pred.shape[0]:
+        raise ValueError(f"y_true and y_pred must have same length; got {y_true.shape[0]} vs {y_pred.shape[0]}")
+    if normalize not in (None, "true", "pred", "all"):
+        raise ValueError(f"normalize must be one of None|'true'|'pred'|'all'; got {normalize!r}")
+
+    if labels is None:
+        labels = np.unique(np.concatenate([y_true, y_pred], axis=0))
+        try:
+            labels = np.sort(labels)
+        except Exception:
+            pass
+    else:
+        labels = np.asarray(labels)
+
+    n_classes = int(labels.shape[0])
+    if n_classes == 0:
+        raise ValueError("No labels to plot (empty `labels`).")
+
+    if label_names is None:
+        label_names = [str(x) for x in labels.tolist()]
+    else:
+        if not hasattr(label_names, "__len__") or len(label_names) != n_classes:
+            raise ValueError(f"label_names must have length {n_classes}; got {len(label_names)}")
+
+    idx = {labels[i]: i for i in range(n_classes)}
+    cm = np.zeros((n_classes, n_classes), dtype=np.int64)
+    for yt, yp in zip(y_true.tolist(), y_pred.tolist()):
+        if yt not in idx or yp not in idx:
+            continue
+        cm[idx[yt], idx[yp]] += 1
+
+    cm_plot = cm.astype(float)
+    if normalize is not None:
+        if normalize == "true":
+            denom = cm_plot.sum(axis=1, keepdims=True)
+        elif normalize == "pred":
+            denom = cm_plot.sum(axis=0, keepdims=True)
+        else:  # "all"
+            denom = cm_plot.sum(keepdims=True)
+        cm_plot = np.divide(cm_plot, denom, out=np.zeros_like(cm_plot), where=(denom != 0))
+
+    if value_fmt is None:
+        value_fmt = ".2f" if normalize is not None else "d"
+    fig, ax = plt.subplots(figsize=(1.0 + 0.65 * n_classes, 1.0 + 0.55 * n_classes))
+    im = ax.imshow(cm_plot, interpolation="nearest", aspect="equal")
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cb.set_label("Proportion" if normalize is not None else "Count")
+
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("True label")
+    ax.set_xticks(np.arange(n_classes))
+    ax.set_yticks(np.arange(n_classes))
+    ax.set_xticklabels(label_names, rotation=45, ha="right")
+    ax.set_yticklabels(label_names)
+    if title is None:
+        if normalize is None:
+            title = "Confusion matrix (counts)"
+        else:
+            title = f"Confusion matrix (normalized: {normalize})"
+    ax.set_title(title)
+    ax.set_xticks(np.arange(-0.5, n_classes, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, n_classes, 1), minor=True)
+    ax.grid(which="minor", linestyle="-", linewidth=0.5, alpha=0.25)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    if show_values:
+        vmax = float(np.max(cm_plot)) if np.isfinite(cm_plot).any() else 0.0
+        thresh = 0.5 * vmax if vmax > 0 else 0.0
+        for i in range(n_classes):
+            for j in range(n_classes):
+                v = cm_plot[i, j]
+                if normalize is None:
+                    s = format(int(cm[i, j]), value_fmt)
+                else:
+                    s = format(float(v), value_fmt)
+                ax.text(
+                    j, i, s,
+                    ha="center", va="center",
+                    fontsize=9,
+                    color="white" if v > thresh else "black",
+                )
+    plt.tight_layout()
+    plt.show()

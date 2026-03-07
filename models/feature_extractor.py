@@ -12,15 +12,6 @@ class FeatureExtractor(ABC):
     eps: float = 1e-12
     normalize_var: bool = True
     log_var: bool = True
-    
-    @abstractmethod
-    def clone(self) -> "FeatureExtractor": ...
-
-    @abstractmethod
-    def fit(self, X: np.ndarray, y: np.ndarray, **kwargs) -> "FeatureExtractor": ...
-
-    @abstractmethod
-    def transform(self, X: np.ndarray, **kwargs) -> np.ndarray: ...
 
     def __post_init__(self):
         if not isinstance(self.eps, float) or not np.isfinite(self.eps) or self.eps <= 0:
@@ -29,8 +20,14 @@ class FeatureExtractor(ABC):
             raise ValueError(f"normalize_var must be a bool, got {self.normalize_var!r}")
         if not isinstance(self.log_var, bool):
             raise ValueError(f"log_var must be a bool, got {self.log_var!r}")
+    
+    @abstractmethod
+    def fit(self, X: np.ndarray, y: np.ndarray, **kwargs) -> "FeatureExtractor": ...
 
-    def _validate_fit_input(self, X: np.ndarray, y: np.ndarray) -> None:
+    @abstractmethod
+    def transform(self, X: np.ndarray, **kwargs) -> np.ndarray: ...
+
+    def _validate_fit_input(self, X: np.ndarray, y: np.ndarray):
         if not isinstance(X, np.ndarray) or X.ndim != 3:
             raise ValueError(f"Expected X to have shape (N, Ch, Time); got {X.shape}")
         if not isinstance(y, np.ndarray) or y.ndim != 1:
@@ -38,25 +35,16 @@ class FeatureExtractor(ABC):
         if X.shape[0] != y.shape[0]:
             raise ValueError(f"X and y must have the same length; got {X.shape[0]} vs {y.shape[0]}")
 
-    def _validate_transform_input(self, X: np.ndarray) -> None:
+    def _validate_transform_input(self, X: np.ndarray):
         if not isinstance(X, np.ndarray) or X.ndim != 3:
             raise ValueError(f"Expected X to have shape (N, Ch, Time); got {X.shape}")
 
-
-@dataclass(slots=True)
-class ChannelLogVar(FeatureExtractor):
-    def clone(self) -> "ChannelLogVar":
-        return ChannelLogVar(normalize_var=self.normalize_var, log_var=self.log_var, eps=self.eps)
-
-    def fit(self, X: np.ndarray, y: np.ndarray, **kwargs) -> "ChannelLogVar":
-        return self
-
-    def transform(self, X: np.ndarray, **kwargs) -> np.ndarray:
-        self._validate_transform_input(X)
-        var = np.var(X, axis=-1, ddof=0)
-        if self.normalize_var:
-            var = var / (np.sum(var, axis=1, keepdims=True) + self.eps)
-        return np.log(var + self.eps) if self.log_var else var
+    def clone(self) -> "FeatureExtractor":
+        return self.__class__(
+            eps=self.eps,
+            normalize_var=self.normalize_var,
+            log_var=self.log_var,
+        )
 
 
 @dataclass(slots=True)
@@ -135,64 +123,8 @@ class CSPLogVar(FeatureExtractor):
         return np.concatenate([evecs[:, :k2], evecs[:, -k2:]], axis=1)
 
 
-@dataclass(slots=True)
-class FTACartesian(FeatureExtractor):
-    n_bins: int = 5
-    max_freq_hz: float = 5.0
-
-    def __post_init__(self):
-        FeatureExtractor.__post_init__(self)
-        if not isinstance(self.n_bins, int) or self.n_bins <= 0:
-            raise ValueError(f"n_bins must be a positive int; got {self.n_bins!r}")
-        if not isinstance(self.max_freq_hz, (int, float)) or not np.isfinite(self.max_freq_hz) or self.max_freq_hz <= 0:
-            raise ValueError(f"max_freq_hz must be finite and > 0; got {self.max_freq_hz!r}")
-
-    def clone(self) -> "FTACartesian":
-        return FTACartesian(
-            n_bins=self.n_bins,
-            max_freq_hz=self.max_freq_hz,
-            normalize_var=self.normalize_var,
-            log_var=self.log_var,
-            eps=self.eps,
-        )
-
-    def fit(self, X: np.ndarray, y: np.ndarray, **kwargs) -> "FTACartesian":
-        return self
-
-    def transform(self, X: np.ndarray, srate: float = 1, **kwargs) -> np.ndarray:
-        self._validate_transform_input(X)
-        if not isinstance(srate, (int, float)) or not np.isfinite(srate) or srate <= 0:
-            raise ValueError(f"srate must be finite and > 0; got {srate!r}")
-
-        n_samples, n_channels, n_frames = X.shape
-        n_rfft = n_frames // 2 + 1
-        if self.n_bins > n_rfft:
-            raise ValueError(f"n_bins must be <= n_frames//2+1 ({n_rfft}); got {self.n_bins!r}")
-
-        Z = np.fft.rfft(X, n=n_frames, axis=-1)
-        freqs = np.fft.rfftfreq(n_frames, d=1.0 / float(srate))
-        if freqs[self.n_bins - 1] > float(self.max_freq_hz) + 1e-9:
-            raise ValueError(
-                f"n_bins={self.n_bins} exceeds max_freq_hz={self.max_freq_hz!r} for n_frames={n_frames}, srate={srate}. "
-                f"Highest kept bin is {freqs[self.n_bins - 1]:.6g} Hz."
-            )
-        Zk = Z[:, :, : self.n_bins]
-        a0 = Zk[:, :, 0].real
-        a = Zk[:, :, 1:]
-        re = a.real
-        im = a.imag
-        cart = np.empty((n_samples, n_channels, 1 + 2 * (self.n_bins - 1)), dtype=np.float64)
-        cart[:, :, 0] = a0
-        if self.n_bins > 1:
-            cart[:, :, 1::2] = re
-            cart[:, :, 2::2] = im
-        return cart.reshape(n_samples, -1)
-
-
 class FeatureExtractorType(Enum):
     CSP_LOGVAR = CSPLogVar
-    CHANNEL_LOGVAR = ChannelLogVar
-    FTA_CARTESIAN = FTACartesian
 
     @property
     def cls(self) -> Type[FeatureExtractor]:

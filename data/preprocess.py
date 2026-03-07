@@ -57,3 +57,55 @@ def common_average_reference(X: np.ndarray, exclude_channels: Optional[Sequence[
 
     ref = X[:, mask, :].mean(axis=1, keepdims=True)  # (N, 1, Time)
     return X - ref
+
+
+def channel_log_var(X: np.ndarray, eps: float = 1e-12, normalize_var: bool = True, log_var: bool = True, **kwargs) -> np.ndarray:
+    if not isinstance(X, np.ndarray) or X.ndim != 3:
+        raise ValueError(f"Expected X to have shape (N, Ch, Time); got {X.shape}")
+    if not isinstance(eps, float) or not np.isfinite(eps) or eps <= 0:
+        raise ValueError(f"eps must be finite and > 0; got {eps!r}")
+    if not isinstance(normalize_var, bool):
+        raise ValueError(f"normalize_var must be a bool, got {normalize_var!r}")
+    if not isinstance(log_var, bool):
+        raise ValueError(f"log_var must be a bool, got {log_var!r}")
+
+    var = np.var(X, axis=-1, ddof=0)  # (N, Ch)
+    if normalize_var:
+        var = var / (np.sum(var, axis=1, keepdims=True) + eps)  # (N, Ch)
+    return np.log(var + eps) if log_var else var  # (N, Ch)
+
+
+def fta_cartesian(X: np.ndarray, srate: float = 1, n_bins: int = 5, max_freq_hz: float = 5.0, **kwargs) -> np.ndarray:
+    if not isinstance(X, np.ndarray) or X.ndim != 3:
+        raise ValueError(f"Expected X to have shape (N, Ch, Time); got {X.shape}")
+    if not isinstance(srate, (int, float)) or not np.isfinite(srate) or srate <= 0:
+        raise ValueError(f"srate must be finite and > 0; got {srate!r}")
+    if not isinstance(n_bins, int) or n_bins <= 0:
+        raise ValueError(f"n_bins must be a positive int; got {n_bins!r}")
+    if not isinstance(max_freq_hz, (int, float)) or not np.isfinite(max_freq_hz) or max_freq_hz <= 0:
+        raise ValueError(f"max_freq_hz must be finite and > 0; got {max_freq_hz!r}")
+
+    n_samples, n_channels, n_frames = X.shape
+    n_rfft = n_frames // 2 + 1
+    if n_bins > n_rfft:
+        raise ValueError(f"n_bins must be <= n_frames//2+1 ({n_rfft}); got {n_bins!r}")
+    Z = np.fft.rfft(X, n=n_frames, axis=-1)
+    freqs = np.fft.rfftfreq(n_frames, d=1.0 / float(srate))
+    if freqs[n_bins - 1] > float(max_freq_hz) + 1e-9:
+        raise ValueError(
+            f"n_bins={n_bins} exceeds max_freq_hz={max_freq_hz!r} for n_frames={n_frames}, srate={srate}. "
+            f"Highest kept bin is {freqs[n_bins - 1]:.6g} Hz."
+        )
+    Zk = Z[:, :, : n_bins]
+    a0 = Zk[:, :, 0].real
+    a = Zk[:, :, 1:]
+    re = a.real
+    im = a.imag
+    cart = np.empty((n_samples, n_channels, 1 + 2 * (n_bins - 1)), dtype=np.float64)
+    cart[:, :, 0] = a0
+    if n_bins > 1:
+        cart[:, :, 1::2] = re
+        cart[:, :, 2::2] = im
+    F = cart.reshape(n_samples, -1)
+    np.ascontiguousarray(F, dtype=np.float64) 
+    return F

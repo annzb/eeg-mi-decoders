@@ -12,11 +12,15 @@ from data.preprocess import PreprocessPipeline, validate_preprocess_pipeline
 class Dataset(ABC):
     def __init__(
         self, dataset_path,
-        exclude_subject_ids: Sequence[str] = []
+        exclude_subject_ids: Sequence[str] = [],
+        allow_multifile_subjects: bool = False
     ):
         self._file_extension = '.mat'
         self._n_channels = None
         self.dataset_path = Path(dataset_path)
+        if not isinstance(allow_multifile_subjects, bool):
+            raise ValueError(f"allow_multifile_subjects must be a boolean, got {type(allow_multifile_subjects)}")
+        self._allow_multifile_subjects = allow_multifile_subjects
         self.subject_data = self._load_subject_data(exclude_subject_ids=exclude_subject_ids)
 
     @abstractmethod
@@ -58,11 +62,15 @@ class Dataset(ABC):
             if not p.is_file() or p.suffix.lower() != self._file_extension:
                 continue
             subject_id = self.filename_to_subject_id(p.name)
-            if subject_id in subject_data:
-                raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
             if (exclude_subject_ids is not None) and (subject_id in exclude_subject_ids):
                 continue
-            subject_data[subject_id] = self._read_mat_file(mat_file=p, subject_id=subject_id)
+            if subject_id in subject_data:
+                if self._allow_multifile_subjects:
+                    subject_data[subject_id] += self._read_mat_file(mat_file=p, subject_id=subject_id)
+                else:
+                    raise ValueError(f"Duplicate subject id {subject_id} encountered (file {p.name}).")
+            else:
+                subject_data[subject_id] = self._read_mat_file(mat_file=p, subject_id=subject_id)
             
         return subject_data
 

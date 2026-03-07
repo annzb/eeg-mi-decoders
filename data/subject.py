@@ -13,7 +13,7 @@ class SubjectData(ABC):
         self,
         X_raw: Any,
         subject_id: str, 
-        sampling_rate: int, 
+        sampling_rate: int,
         electrode_locations: np.ndarray,
         Y_raw: Optional[Any] = None,
         electrode_labels: Optional[np.ndarray] = None,
@@ -40,6 +40,7 @@ class SubjectData(ABC):
         self._labels = np.array([i for i in range(len(self.label_names()))])
         self._n_classes = len(self._labels)
         self._Y = self._make_labels(Y_raw=Y_raw)
+        # self._id = self._make_id()
 
     def _format_X(self, X_raw: Any) -> np.ndarray:
         try:
@@ -73,6 +74,14 @@ class SubjectData(ABC):
             np.full(self._n_classes, trials_per_label) + (np.arange(self._n_classes) < leftover_trials),
         )
         return Y.astype(np.int64, copy=False)
+
+    # def _make_id(self) -> str:
+    #     return '|'.join([
+    #         f'subject_type={self.__class__.__name__}',
+    #         f'subject_id={self._subject_id}',
+    #         f'X_dims=({",".join(map(str, self._X.shape))})',
+    #         f'electrode_labels=({",".join(self._electrode_labels)})'
+    #     ])
 
     @abstractmethod
     def channel_names(self) -> tuple:
@@ -167,6 +176,65 @@ class SubjectData(ABC):
             joint_labels.append(other_label)
 
         return np.asarray(joint_trials, dtype=int), np.asarray(joint_labels, dtype=int)
+
+    def __add__(self, other: "SubjectData") -> "SubjectData":
+        if not isinstance(other, SubjectData):
+            return NotImplemented
+
+        if self._subject_id != other.subject_id():
+            raise ValueError(f"Cannot add subject data with different subject ids: {self._subject_id!r} vs {other.subject_id()!r}")
+        if self._sampling_rate != other.sampling_rate():
+            raise ValueError(f"Cannot add subjects with different sampling rates: {self._sampling_rate} vs {other.sampling_rate()}")
+        if self._preprocessing_applied != other.preprocessing_applied():
+            raise ValueError(f"Cannot add subjects with different preprocessing flags: {self._preprocessing_applied} vs {other.preprocessing_applied()}")
+        if self.channel_names() != other.channel_names():
+            raise ValueError(f"Cannot add subjects with different channel names: {self.channel_names()} vs {other.channel_names()}")
+        if self.label_names() != other.label_names():
+            raise ValueError(f"Cannot add subjects with different label names: {self.label_names()} vs {other.label_names()}")
+        loc_a = np.asarray(self._electrode_locations)
+        loc_b = np.asarray(other.electrode_locations())
+        if loc_a.shape != loc_b.shape or not np.allclose(loc_a, loc_b, rtol=0.0, atol=0.0, equal_nan=True):
+            raise ValueError(f"Cannot add subjects with different electrode locations: {loc_a.shape} vs {loc_b.shape}")
+        lab_a = self._electrode_labels
+        lab_b = other.electrode_labels()
+        if (lab_a is None) != (lab_b is None):
+            raise ValueError(f"Cannot add subjects with different electrode labels: {lab_a is None} vs {lab_b is None}")
+        if lab_a is not None:
+            lab_a = np.asarray(lab_a)
+            lab_b = np.asarray(lab_b)
+            if lab_a.shape != lab_b.shape or not np.array_equal(lab_a, lab_b):
+                raise ValueError(f"Cannot add subjects with different electrode labels: {lab_a.shape} vs {lab_b.shape}")
+
+        X_a = np.asarray(self._X)
+        X_b = np.asarray(other.X())
+        if X_a.ndim != 3 or X_b.ndim != 3:
+            raise ValueError(f"X must be 3D (n_trials,n_channels,n_samples); got {X_a.shape} and {X_b.shape}")
+        if X_a.shape[1:] != X_b.shape[1:]:
+            raise ValueError(f"X shape mismatch (channels/samples): {X_a.shape[1:]} vs {X_b.shape[1:]}")
+
+        Y_a = np.asarray(self._Y)
+        Y_b = np.asarray(other.Y())
+        if Y_a.ndim != 1 or Y_b.ndim != 1:
+            raise ValueError(f"Y must be 1D; got {Y_a.shape} and {Y_b.shape}")
+        if Y_a.size != X_a.shape[0] or Y_b.size != X_b.shape[0]:
+            raise ValueError("Y length must match n_trials in X")
+        if self._n_classes != other.n_classes():
+            raise ValueError(f"n_classes mismatch: {self._n_classes} vs {other.n_classes()}")
+        if not np.array_equal(self._labels, other.labels()):
+            raise ValueError("labels set/order mismatch")
+
+        X_new = np.concatenate([X_a, X_b], axis=0)
+        Y_new = np.concatenate([Y_a, Y_b], axis=0)
+        merged = self.__class__(
+            X_raw=X_new,
+            subject_id=self._subject_id,
+            sampling_rate=self._sampling_rate,
+            electrode_locations=self._electrode_locations,
+            Y_raw=Y_new,
+            electrode_labels=self._electrode_labels,
+        )
+        merged._preprocessing_applied = self._preprocessing_applied
+        return merged
 
     def plot_head(self, trial: int, index=None, timestamp=None, plot_joint=False):
         self._validate_trial(trial=trial)

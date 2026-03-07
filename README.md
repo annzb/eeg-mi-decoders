@@ -11,7 +11,7 @@ Sources:
 
 | Property           | DS1 Value    | DS4 HaLT Value |
 |--------------------|--------------|----------------|
-| N subjects         | 50           | 12             |
+| N subjects         | 50           | 29             |
 | Total samples      | 10,120       |                |
 | N channels         | 64           | 21             |
 | Trial duration     | 2.0 s        | 0.85 s         |

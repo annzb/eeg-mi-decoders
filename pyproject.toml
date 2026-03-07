@@ -1,0 +1,20 @@
+[project]
+name = "eeg-mi-decoders"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "joblib>=1.5.3",
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.2",
+    "scikit-learn>=1.8.0",
+    "tqdm>=4.67.3",
+    "tqdm-joblib>=0.0.5",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.2.0",
+    "ipywidgets>=8.1.8",
+]

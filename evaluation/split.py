@@ -2,18 +2,20 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, Iterator, Optional, Sequence, Tuple
+import uuid
 
 import numpy as np
 
 
-SplitTuple = Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]
-
-
 @dataclass(frozen=True, slots=True)
-class Split(ABC):
-    @abstractmethod
-    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[SplitTuple]:
-        raise NotImplementedError
+class Split:
+    train_idx: np.ndarray
+    val_idx: Optional[np.ndarray] = None
+    test_idx: Optional[np.ndarray] = None
+    split_id: uuid.UUID = uuid.uuid4()
+
+    def __post_init__(self):
+        self._validate_split(self.train_idx, self.val_idx, self.test_idx)
 
     @staticmethod
     def _validate_split(train_idx: np.ndarray, val_idx: Optional[np.ndarray], test_idx: Optional[np.ndarray]) -> None:
@@ -49,15 +51,23 @@ class Split(ABC):
 
 
 @dataclass(frozen=True, slots=True)
-class RepeatedSubsetCrossval(Split):
-    n_subsets: int = 10
-    test_k: int = 3
-    n_repeats: int = 120
+class Splitter:
     seed: int = 0
+    shuffle: bool = True
     stratify: bool = True
     require_all_classes_in_train: bool = True
 
-    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[SplitTuple]:
+    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[Split]:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, slots=True)
+class RepeatedSubsetCrossval(Splitter):
+    n_subsets: int = 10
+    test_k: int = 3
+    n_repeats: int = 120
+
+    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[Split]:
         y = np.asarray(y)
         if y.ndim != 1:
             raise ValueError(f"y must be 1D; got shape={y.shape}")
@@ -88,7 +98,6 @@ class RepeatedSubsetCrossval(Split):
                 train_idx = np.concatenate([pooled[k] for k in subset_ids if k not in test_subset_ids])
                 if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                     continue
-                self._validate_split(train_idx, None, test_idx)
                 yield train_idx, None, test_idx
             return
 
@@ -104,19 +113,14 @@ class RepeatedSubsetCrossval(Split):
             test_idx = np.concatenate(test_parts)
             if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                 continue
-            self._validate_split(train_idx, None, test_idx)
-            yield train_idx, None, test_idx
+            yield Split(train_idx, None, test_idx)
 
 
 @dataclass(frozen=True, slots=True)
 class KFoldCrossval(Split):
     k: int = 5
-    seed: int = 0
-    shuffle: bool = True
-    stratify: bool = True
-    require_all_classes_in_train: bool = True
 
-    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[SplitTuple]:
+    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[Split]:
         y = np.asarray(y)
         if y.ndim != 1:
             raise ValueError(f"y must be 1D; got shape={y.shape}")
@@ -137,8 +141,7 @@ class KFoldCrossval(Split):
                 train_idx = np.concatenate([folds[j] for j in range(self.k) if j != i])
                 if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                     continue
-                self._validate_split(train_idx, None, test_idx)
-                yield train_idx, None, test_idx
+                yield Split(train_idx, None, test_idx)
             return
 
         folds_by_class: Dict[object, Sequence[np.ndarray]] = {}
@@ -155,19 +158,15 @@ class KFoldCrossval(Split):
             train_idx = np.concatenate(train_parts)
             if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                 continue
-            self._validate_split(train_idx, None, test_idx)
-            yield train_idx, None, test_idx
+            yield Split(train_idx, None, test_idx)
 
 
 @dataclass(frozen=True, slots=True)
-class RepeatedHoldoutSplit(Split):
+class RepeatedHoldoutSplit(Splitter):
     train_frac: float = 0.63
     val_frac: float = 0.27
     test_frac: float = 0.10
     n_repeats: int = 5
-    seed: int = 0
-    stratify: bool = True
-    require_all_classes_in_train: bool = True
 
     def __post_init__(self):
         for name, v in (("train_frac", self.train_frac), ("val_frac", self.val_frac), ("test_frac", self.test_frac)):
@@ -181,7 +180,7 @@ class RepeatedHoldoutSplit(Split):
         if not isinstance(self.n_repeats, int) or self.n_repeats <= 0:
             raise ValueError(f"n_repeats must be positive int; got {self.n_repeats!r}")
 
-    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[SplitTuple]:
+    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[Split]:
         y = np.asarray(y)
         if y.ndim != 1:
             raise ValueError(f"y must be 1D; got shape={y.shape}")
@@ -209,8 +208,7 @@ class RepeatedHoldoutSplit(Split):
                 test_idx = idx[n_train + n_val :] if n_test > 0 else None
                 if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                     continue
-                self._validate_split(train_idx, val_idx, test_idx)
-                yield train_idx, val_idx, test_idx
+                yield Split(train_idx, val_idx, test_idx)
                 continue
 
             train_parts, val_parts, test_parts = [], [], []
@@ -234,5 +232,4 @@ class RepeatedHoldoutSplit(Split):
             test_idx = np.concatenate(test_parts) if len(test_parts) > 0 else None
             if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                 continue
-            self._validate_split(train_idx, val_idx, test_idx)
-            yield train_idx, val_idx, test_idx
+            yield Split(train_idx, val_idx, test_idx)

@@ -32,20 +32,6 @@ class Score:
     def __repr__(self) -> str:
         return f"{self._acc_mean:.3f} ± {self._acc_std:.3f}, sem={self._acc_sem:.3f}, 95% CI={self._acc_ci95_half:.3f}"
 
-# @dataclass(frozen=True, slots=True)
-# class Score:
-#     acc_mean: float
-#     acc_std: float
-
-#     def __post_init__(self):
-#         if not isinstance(self.acc_mean, float) or not np.isfinite(self.acc_mean) or self.acc_mean < 0 or self.acc_mean > 1:
-#             raise ValueError(f"acc_mean must be a finite float in [0, 1]; got {self.acc_mean!r}")
-#         if not isinstance(self.acc_std, float) or not np.isfinite(self.acc_std) or self.acc_std < 0:
-#             raise ValueError(f"acc_std must be a finite float >= 0; got {self.acc_std!r}")
-
-#     def __repr__(self) -> str:
-#         return f"{self.acc_mean:.3f} ± {self.acc_std:.3f}"
-
 
 @dataclass(frozen=True, slots=True)
 class SubjectEvalResult:
