@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
+import uuid
 
 import numpy as np
 
@@ -9,12 +10,16 @@ from data.subject import SubjectData
 from data.preprocess import PreprocessPipeline, validate_preprocess_pipeline
 
 
+_datasets = {}
+
+
 class Dataset(ABC):
     def __init__(
         self, dataset_path,
         exclude_subject_ids: Sequence[str] = [],
         allow_multifile_subjects: bool = False
     ):
+        self._dataset_id = str(uuid.uuid4())
         self._file_extension = '.mat'
         self._n_channels = None
         self.dataset_path = Path(dataset_path)
@@ -22,6 +27,7 @@ class Dataset(ABC):
             raise ValueError(f"allow_multifile_subjects must be a boolean, got {type(allow_multifile_subjects)}")
         self._allow_multifile_subjects = allow_multifile_subjects
         self.subject_data = self._load_subject_data(exclude_subject_ids=exclude_subject_ids)
+        _datasets[self._dataset_id] = self
 
     @abstractmethod
     def trial_start_timestamp(self) -> float:
@@ -34,6 +40,10 @@ class Dataset(ABC):
     @abstractmethod
     def _read_mat_file(self, mat_file: Path, subject_id: str) -> SubjectData:
         raise NotImplementedError("Subclasses must implement this method")
+
+    @property
+    def dataset_id(self) -> str:
+        return self._dataset_id
 
     def filename_to_subject_id(self, filename: str) -> str:
         if filename.endswith(self._file_extension):
@@ -119,7 +129,16 @@ class Dataset(ABC):
         return X, Y, groups
 
     def print_info(self):
+        print(f"Dataset ID: {self._dataset_id}")
         total_bytes = sum(s.X().nbytes for s in self.subject_data.values())
         print(f"Total subjects: {len(self.subject_data)}")
         print(f"Epoch window: {self.trial_start_timestamp():.3f}–{self.trial_end_timestamp():.3f} s")
         print(f"Total subject data: {total_bytes / 1024**2:.2f} MB")
+
+
+def get_dataset(dataset_id: str) -> Dataset:
+    if not isinstance(dataset_id, str):
+        raise ValueError(f"dataset_id must be a string; got {type(dataset_id)}")
+    if dataset_id not in _datasets:
+        raise ValueError(f"Dataset {dataset_id} not found")
+    return _datasets[dataset_id]

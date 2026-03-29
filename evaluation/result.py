@@ -4,6 +4,46 @@ from typing import Dict, Optional
 
 import numpy as np
 
+from data import get_dataset
+from models import Model
+from evaluation.split import Split
+
+
+@dataclass(frozen=True, slots=True)
+class ModelEvalResult:
+    model: Model  # unique instance
+    split: Split  # unique instance
+    guess_accuracy: float  # unique across dataset-subject
+    ucl_accuracy: float  # unique across dataset-subject
+    ucl_alpha: float = 0.05  # parameter
+    dataset_id: Optional[str] = None
+    subject_id: Optional[str] = None
+    train_acc: Optional[float] = None  # per sample in split, unique across model-split
+    val_acc: Optional[float] = None  # per sample in split, unique across model-split
+    test_acc: Optional[float] = None  # per sample in split, unique across model-split
+
+    def __post_init__(self):
+        if not isinstance(self.model, Model):
+            raise ValueError(f"model must be a Model instance; got {type(self.model)}")
+        if not isinstance(self.split, Split):
+            raise ValueError(f"split must be a Split instance; got {type(self.split)}")
+        if not isinstance(self.guess_accuracy, float) or self.guess_accuracy < 0 or self.guess_accuracy > 1:
+            raise ValueError(f"guess_accuracy must be a finite float in [0, 1]; got {self.guess_accuracy!r}")
+        if not isinstance(self.ucl_accuracy, float) or self.ucl_accuracy < 0 or self.ucl_accuracy > 1:
+            raise ValueError(f"ucl_accuracy must be a finite float in [0, 1]; got {self.ucl_accuracy!r}")
+        if not isinstance(self.ucl_alpha, float) or self.ucl_alpha < 0 or self.ucl_alpha > 1:
+            raise ValueError(f"ucl_alpha must be a finite float in [0, 1]; got {self.ucl_alpha!r}")
+        if self.dataset_id is not None and get_dataset(self.dataset_id) is None:
+            raise ValueError(f"Dataset {self.dataset_id} not found")
+        if self.subject_id is not None and not isinstance(self.subject_id, str):
+            raise ValueError(f"subject_id must be a string; got {type(self.subject_id)}")
+        if self.train_acc is not None and (not isinstance(self.train_acc, float) or self.train_acc < 0 or self.train_acc > 1):
+            raise ValueError(f"train_acc must be a finite float in [0, 1]; got {self.train_acc!r}")
+        if self.val_acc is not None and (not isinstance(self.val_acc, float) or self.val_acc < 0 or self.val_acc > 1):
+            raise ValueError(f"val_acc must be a finite float in [0, 1]; got {self.val_acc!r}")
+        if self.test_acc is not None and (not isinstance(self.test_acc, float) or self.test_acc < 0 or self.test_acc > 1):
+            raise ValueError(f"test_acc must be a finite float in [0, 1]; got {self.test_acc!r}")
+
 
 class Score:
     def __init__(self, acc_means: Sequence[float]):

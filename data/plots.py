@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib.patches import Circle
 from scipy.interpolate import griddata
 
-from evaluation.result import DatasetEvalResult, Score
+# from evaluation.result import DatasetEvalResult, Score
 
 
 def plot_scalp(signal, channel_locations, channel_names=None, title=None):
@@ -177,43 +177,24 @@ def plot_eeg_heatmap(t, sample, channels=None, channel_names=None, title=None):
     plt.show()
 
 
-def plot_subject_accuracies(
-    scores: DatasetEvalResult,
-    mode: str = "train",
-    show_mean_line: bool = True,
-    show_ci_band: bool = True
-):
+def plot_model_accuracies(subject_means: np.array, subject_stds: np.array, subject_ucls: np.array):
     color_above_ucl = "teal"
     color_below_ucl = "orangered"
     ucl_color = "dodgerblue"
-    modes = {"train", "val", "test"}
 
-    if not isinstance(scores, DatasetEvalResult):
-        raise ValueError("scores must be a DatasetEvalResult instance; got {type(scores)}")
-        
-    if mode == "train":
-        mode_scores = scores.get_train_scores_per_subject()
-        total_score = scores.train
-    elif mode == "val":
-        mode_scores = scores.get_val_scores_per_subject()
-        total_score = scores.val
-    elif mode == "test":
-        mode_scores = scores.get_test_scores_per_subject()
-        total_score = scores.test
-    else:
-        raise ValueError("mode must be one of {modes}; got {mode!r}")
-    if not isinstance(total_score, Score):
-        raise ValueError("total_score must be a Score instance; got {type(total_score)}")
+    if not isinstance(subject_means, np.ndarray) or subject_means.size == 0:
+        raise ValueError("subject_means must be a non-empty np array")
+    if not isinstance(subject_stds, np.ndarray) or subject_stds.size == 0:
+        raise ValueError("subject_stds must be a non-empty np array")
+    if not isinstance(subject_ucls, np.ndarray) or subject_ucls.size == 0:
+        raise ValueError("subject_ucls must be a non-empty np array")
 
-    means = np.asarray([score.acc_mean() for score in mode_scores.values()])
-    stds = np.asarray([score.acc_std() for score in mode_scores.values()])
-    ucls = np.asarray(list(scores.get_ucl_per_subject().values()))
-    is_fraction = np.nanmax(means) <= 1.2
+    is_fraction = np.nanmax(subject_means) <= 1.2
     y_label = "Accuracy" + ("" if is_fraction else " (%)")
-    order = np.argsort(means)
-    means_s = means[order]
-    stds_s = stds[order]
-    ucls_s = ucls[order]
+    order = np.argsort(subject_means)
+    means_s = subject_means[order]
+    stds_s = subject_stds[order]
+    ucls_s = subject_ucls[order]
     x = np.arange(len(means_s))
     has_ucl = np.isfinite(ucls_s)
     above = has_ucl & (means_s >= ucls_s)
@@ -272,17 +253,13 @@ def plot_subject_accuracies(
         for j, run in enumerate(runs):
             ax.plot(x[run], ucls_s[run], linestyle=':', linewidth=1.3, color=ucl_color, zorder=2, label="UCL threshold (α=0.05)" if j == 0 else None)
 
-    # Mean + CI across subjects
-    mean_all = None
-    if total_score.acc_mean() is not None:
-        mean_all = total_score.acc_mean()
-        if show_mean_line:
-            ax.axhline(mean_all, linestyle="--", linewidth=1.2, alpha=0.9, color='purple', label=f'{mean_all*100:.2f}% mean accuracy')
-        if show_ci_band:
-            if total_score.acc_ci95_half() is None:
-                raise ValueError(f"total_score.acc_ci95_half() is None, cannot draw CI band.")
-            ci_half = total_score.acc_ci95_half()
-            ax.axhspan(mean_all - ci_half, mean_all + ci_half, alpha=0.15, zorder=0, color='purple', label="mean accuracy ± 95% CI")
+    # Mean across subject means
+    mean_all = means_s.mean()
+    ax.axhline(mean_all, linestyle="--", linewidth=1.2, alpha=0.9, color='purple', label=f'{mean_all*100:.2f}% mean accuracy')
+
+    # CI across subjects
+    ci_half = float(1.96 * np.std(means_s, ddof=0) / np.sqrt(means_s.size))
+    ax.axhspan(mean_all - ci_half, mean_all + ci_half, alpha=0.15, zorder=0, color='purple', label="mean accuracy ± 95% CI")
 
     # Title
     title = f'Classification Accuracy'

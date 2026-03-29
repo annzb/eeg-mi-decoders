@@ -7,19 +7,78 @@ from typing import Callable, Dict, Iterator, Optional, Sequence
 
 import numpy as np
 
+from data import Dataset, SubjectData, get_dataset
 from evaluation import metrics
 from evaluation.split import Split, Splitter
-from evaluation.result import DatasetEvalResult, Score, SubjectEvalResult
+from evaluation.result import DatasetEvalResult, Score, SubjectEvalResult, ModelEvalResult
 from models import Model
 
 
 class Evaluator:
+    def __init__(self):
+        self._results = []
+
+    def reset(self):
+        self._results = []
+
+    def get_results(
+        self,
+        dataset_id: Optional[str] = None,
+        subject_id: Optional[str] = None
+    ) -> Tuple[ModelEvalResult, ...]:
+        if dataset_id is not None and not isinstance(dataset_id, str):
+            raise ValueError(f"dataset_id must be a string; got {type(dataset_id)}")
+        if subject_id is not None and not isinstance(subject_id, str):
+            raise ValueError(f"subject_id must be a string; got {type(subject_id)}")
+        return tuple(
+            result
+            for result in self._results
+            if (dataset_id is None or result.dataset_id == dataset_id)
+            and (subject_id is None or result.subject_id == subject_id)
+        )
+    
+    def get_scores(self, results: Sequence[ModelEvalResult], mode: str = 'train') -> np.ndarray:
+        if not results or not hasattr(results, '__len__'):
+            raise ValueError("results must be a non-empty sequence")
+
+        modes = {'train', 'val', 'test'}
+        if mode not in modes:
+            raise ValueError(f"mode must be one of {modes}; got {mode!r}")
+        if mode == "train":
+            acc_attr = 'train_acc'
+        elif mode == "val":
+            acc_attr = 'val_acc'
+        elif mode == "test":
+            acc_attr = 'test_acc'
+        if not hasattr(results[0], acc_attr):
+            raise ValueError(f"Model result missing {acc_attr} attribute for mode {mode!r}")
+
+        scores = [getattr(res, acc_attr) for res in results]
+        return np.asarray(scores)
+
+    def get_model_scores(self, dataset: Dataset, mode: str = 'train') -> np.ndarray:
+        subjects = dataset.subject_ids()
+        subject_means, subject_stds, subject_ucls = [], [], []
+        for subject in subjects:
+            subject_results = self.get_results(dataset_id=dataset.dataset_id, subject_id=subject)
+            subject_scores = self.get_scores(subject_results, mode=mode)
+            subject_means.append(float(np.mean(subject_scores)))
+            subject_stds.append(float(np.std(subject_scores, ddof=0)))
+            subject_ucls.append(subject_results[0].ucl_accuracy)
+        return np.asarray(subject_means), np.asarray(subject_stds), np.asarray(subject_ucls)
+        
     def eval_subject(
         self, splitter: Splitter, model: Model,
         X: np.ndarray, y: np.ndarray,
         alpha: float = 0.05,
-        metric: Callable[[np.ndarray, np.ndarray], float] = metrics.accuracy
-    ) -> SubjectEvalResult:
+        metric: Callable[[np.ndarray, np.ndarray], float] = metrics.accuracy,
+        dataset_id: Optional[str] = None,
+        subject_id: Optional[str] = None,
+        reset_results: bool = False
+    ) -> Tuple[ModelEvalResult, ...]:
+        if reset_results:
+            self.reset()
+
         if not isinstance(splitter, Splitter):
             raise ValueError(f"split must be a Splitter instance; got {type(split)}")
         if not isinstance(model, Model):
@@ -30,53 +89,56 @@ class Evaluator:
         guess_accuracy = metrics.calc_guess_accuracy(y)
         ucl_accuracy = metrics.calc_ucl_accuracy(len(y), alpha=alpha, guess_accuracy=guess_accuracy)
 
-        train_scores, val_scores, test_scores = [], [], []
-        n_train, n_val, n_test = [], [], []
+        subject_results = []
         for split in splitter(y):
             m = model.clone()
             m.fit(X[split.train_idx], y[split.train_idx])
             train_score, val_score, test_score = m.eval_metric(split=split, X=X, y=y, metric=metric)
-            train_scores.append(train_score)
-            n_train.append(int(split.train_idx.size))
-            if val_score is not None:
-                val_scores.append(val_score)
-                n_val.append(int(split.val_idx.size))
-            if test_score is not None:
-                test_scores.append(test_score)
-                n_test.append(int(split.test_idx.size))
-        
-        train_score = val_score = test_score = None
-        train_score = Score(acc_means=train_scores) if train_scores else None
-        val_score = Score(acc_means=val_scores) if val_scores else None
-        test_score = Score(acc_means=test_scores) if test_scores else None
-        return SubjectEvalResult(train=train_score, val=val_score, test=test_score, guess_accuracy=guess_accuracy, ucl_accuracy=ucl_accuracy)
+            subject_results.append(ModelEvalResult(
+                model=model,
+                split=split,
+                guess_accuracy=guess_accuracy,
+                ucl_accuracy=ucl_accuracy,
+                dataset_id=dataset_id,
+                subject_id=subject_id,
+                train_acc=train_score,
+                val_acc=val_score,
+                test_acc=test_score
+            ))
+
+        self._results.extend(subject_results)
+        return tuple(subject_results)
 
     def eval_all_subjects(
         self, splitter: Splitter, model: Model,
         X: np.ndarray, y: np.ndarray, groups: np.ndarray,
         alpha: float = 0.05,
-        metric: Callable[[np.ndarray, np.ndarray], float] = metrics.accuracy
+        metric: Callable[[np.ndarray, np.ndarray], float] = metrics.accuracy,
+        dataset_id: Optional[str] = None,
+        reset_results: bool = False
     ) -> DatasetEvalResult:
+        if reset_results:
+            self.reset()
+        if self._results:
+            raise ValueError("Results are not empty, set reset_results=True")
+
         if not isinstance(groups, np.ndarray):
             raise ValueError(f"groups must be a numpy array; got {type(groups)}")
         if groups.ndim != 1 or groups.size != X.shape[0]:
             raise ValueError(f"groups must be a 1D numpy array of the same length as X; got {groups.shape}, {groups.dtype}")
         
-        per_subject = {}
-        means_train, means_val, means_test = [], [], []
+        results = []
         for sid in np.unique(groups):
             mask = (groups == sid)
-            scores = self.eval_subject(splitter=splitter, model=model, X=X[mask], y=y[mask], alpha=alpha, metric=metric)
-            per_subject[str(sid)] = scores
-            if scores.train is not None:
-                means_train.append(scores.train.acc_mean())
-            if scores.val is not None:
-                means_val.append(scores.val.acc_mean())
-            if scores.test is not None:
-                means_test.append(scores.test.acc_mean())
-        
-        train_score = val_score = test_score = None
-        train_score = Score(acc_means=means_train) if means_train else None
-        val_score = Score(acc_means=means_val) if means_val else None
-        test_score = Score(acc_means=means_test) if means_test else None
-        return DatasetEvalResult(per_subject=per_subject, train=train_score, val=val_score, test=test_score)
+            subject_results = self.eval_subject(
+                splitter=splitter,
+                model=model,
+                X=X[mask], y=y[mask],
+                alpha=alpha,
+                metric=metric,
+                dataset_id=dataset_id,
+                subject_id=str(sid),
+                reset_results=False
+            )
+            results.extend(subject_results)
+        return results

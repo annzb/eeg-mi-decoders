@@ -1,0 +1,3 @@
+[submodule "ds8/high-gamma-dataset"]
+	path = ds8/high-gamma-dataset
+	url = https://github.com/robintibor/high-gamma-dataset.git
