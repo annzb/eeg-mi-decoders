@@ -5,18 +5,20 @@ from typing import Any, Optional, Callable, Dict, Sequence
 import numpy as np
 
 from data import plots
-from data.preprocess import PreprocessPipeline, validate_preprocess_pipeline
+from data.preprocess import PreprocessPipeline, PreprocessResult, validate_preprocess_pipeline
 
 
 class SubjectData(ABC):
     def __init__(
         self,
         X_raw: Any,
-        subject_id: str, 
+        subject_id: str,
         sampling_rate: int,
         electrode_locations: np.ndarray,
         Y_raw: Optional[Any] = None,
         electrode_labels: Optional[np.ndarray] = None,
+        channel_names: Optional[tuple] = None,
+        trial_subsets: Optional[Sequence[Any]] = None,
         *args, **kwargs
     ):
         self._preprocessing_applied = False
@@ -29,18 +31,26 @@ class SubjectData(ABC):
             raise ValueError(f"electrode_locations must be a numpy array with shape (n_channels, 2), got {electrode_locations.shape}")
         if electrode_labels is not None and (not isinstance(electrode_labels, np.ndarray) or electrode_labels.shape[0] != electrode_locations.shape[0]):
             raise ValueError(f"electrode_labels must be a numpy array with shape (n_channels,), got {electrode_labels.shape}")
-            
+
         self._subject_id = subject_id
         self._sampling_rate = sampling_rate
         self._electrode_locations = electrode_locations
         self._electrode_labels = electrode_labels
+        self._channel_names = channel_names
 
         self._X = self._format_X(X_raw)
         self._n_trials, self._n_channels, self._n_samples = self._X.shape
         self._labels = np.array([i for i in range(len(self.label_names()))])
         self._n_classes = len(self._labels)
         self._Y = self._make_labels(Y_raw=Y_raw)
-        # self._id = self._make_id()
+
+        self._trial_subsets = None
+        if trial_subsets is not None:
+            if not hasattr(trial_subsets, '__len__') or len(trial_subsets) == 0:
+                raise ValueError(f"trial_subsets must be a non-empty sequence, got {type(trial_subsets)}")
+            if len(trial_subsets) != self._n_trials:
+                raise ValueError(f"trial_subsets must have the same length as n_trials, got {len(trial_subsets)} vs {self._n_trials}")
+            self._trial_subsets = np.asarray(trial_subsets)
 
     def _format_X(self, X_raw: Any) -> np.ndarray:
         try:
@@ -74,14 +84,6 @@ class SubjectData(ABC):
             np.full(self._n_classes, trials_per_label) + (np.arange(self._n_classes) < leftover_trials),
         )
         return Y.astype(np.int64, copy=False)
-
-    # def _make_id(self) -> str:
-    #     return '|'.join([
-    #         f'subject_type={self.__class__.__name__}',
-    #         f'subject_id={self._subject_id}',
-    #         f'X_dims=({",".join(map(str, self._X.shape))})',
-    #         f'electrode_labels=({",".join(self._electrode_labels)})'
-    #     ])
 
     @abstractmethod
     def channel_names(self) -> tuple:
@@ -127,11 +129,58 @@ class SubjectData(ABC):
     def Y(self) -> np.ndarray:
         return self._Y
 
+    def trial_subsets(self) -> Optional[Sequence[Any]]:
+        return self._trial_subsets
+
+    def crop_time_window(self, start_idx: Optional[int] = None, stop_idx: Optional[int] = None) -> None:
+        if start_idx is not None and (not isinstance(start_idx, int) or start_idx < 0):
+            raise ValueError(f"start_idx must be a non-negative int or None, got {start_idx!r}")
+        if stop_idx is not None and (not isinstance(stop_idx, int) or stop_idx < 0):
+            raise ValueError(f"stop_idx must be a non-negative int or None, got {stop_idx!r}")
+        if start_idx is None:
+            start_idx = 0
+        if stop_idx is None:
+            stop_idx = self._n_samples
+        if start_idx > stop_idx:
+            raise ValueError(f"start_idx must be <= stop_idx, got start_idx={start_idx}, stop_idx={stop_idx}")
+        if stop_idx > self._n_samples:
+            raise ValueError(f"stop_idx must be <= n_samples={self._n_samples}, got {stop_idx}")
+        if start_idx == stop_idx:
+            raise ValueError("crop would produce an empty sample axis")
+        self._X = self._X[:, :, start_idx:stop_idx]
+        self._n_samples = self._X.shape[2]
+
     def apply_preprocessing(self, pipeline: PreprocessPipeline) -> None:
         validate_preprocess_pipeline(pipeline)
         self._preprocessing_applied = True
+
         for func, kwargs in zip(pipeline[0], pipeline[1]):
-            self._X = func(self._X, sampling_rate=self._sampling_rate, **kwargs)
+            result = func(
+                self._X,
+                sampling_rate=self._sampling_rate,
+                channel_names=self._channel_names,
+                **kwargs
+            )
+            if isinstance(result, PreprocessResult):
+                self._X = result.X
+                if result.Y_mask is not None:
+                    self._Y = self._Y[result.Y_mask]
+                    if self._trial_subsets is not None:
+                        self._trial_subsets = self._trial_subsets[result.Y_mask]
+                if result.sampling_rate is not None:
+                    self._sampling_rate = result.sampling_rate
+                if result.channel_mask is not None:
+                    if self._channel_names is not None:
+                        self._channel_names = tuple(
+                            ch for ch, keep in zip(self._channel_names, result.channel_mask) if keep
+                        )
+                    if self._electrode_locations is not None:
+                        self._electrode_locations = self._electrode_locations[result.channel_mask]
+                    if self._electrode_labels is not None:
+                        self._electrode_labels = self._electrode_labels[result.channel_mask]
+            else:
+                self._X = result
+            self._n_trials, self._n_channels, self._n_samples = self._X.shape
 
     def clone(self) -> 'SubjectData':
         return deepcopy(self)
@@ -150,7 +199,9 @@ class SubjectData(ABC):
         elif index is None and timestamp is None:
             index = 0
         elif timestamp is not None:
-            index = int(round(float(timestamp) * self._sampling_rate))
+            if timestamp <= 0:
+                raise ValueError(f"Timestamp must be above 0, got {timestamp}")
+            index = int(round(float(timestamp) * self._sampling_rate)) - 1
         if index < 0 or index >= self._n_samples:
             raise IndexError(f"`index` out of range: {index} (valid: 0..{self._n_samples-1})")
         return index
@@ -178,7 +229,7 @@ class SubjectData(ABC):
         return np.asarray(joint_trials, dtype=int), np.asarray(joint_labels, dtype=int)
 
     def __add__(self, other: "SubjectData") -> "SubjectData":
-        if not isinstance(other, SubjectData):
+        if not issubclass(other.__class__, SubjectData):
             return NotImplemented
 
         if self._subject_id != other.subject_id():
@@ -225,6 +276,15 @@ class SubjectData(ABC):
 
         X_new = np.concatenate([X_a, X_b], axis=0)
         Y_new = np.concatenate([Y_a, Y_b], axis=0)
+
+        subsets_a = self._trial_subsets
+        subsets_b = other.trial_subsets()
+        if (subsets_a is None) != (subsets_b is None):
+            raise ValueError("Cannot add subjects when only one side has trial_subsets")
+        trial_subsets_new = None
+        if subsets_a is not None:
+            trial_subsets_new = np.concatenate([np.asarray(subsets_a), np.asarray(subsets_b)], axis=0)
+
         merged = self.__class__(
             X_raw=X_new,
             subject_id=self._subject_id,
@@ -232,6 +292,8 @@ class SubjectData(ABC):
             electrode_locations=self._electrode_locations,
             Y_raw=Y_new,
             electrode_labels=self._electrode_labels,
+            channel_names=self._channel_names,
+            trial_subsets=trial_subsets_new,
         )
         merged._preprocessing_applied = self._preprocessing_applied
         return merged

@@ -90,7 +90,7 @@ class Evaluator:
         ucl_accuracy = metrics.calc_ucl_accuracy(len(y), alpha=alpha, guess_accuracy=guess_accuracy)
 
         subject_results = []
-        for split in splitter(y):
+        for split in splitter(y, subject_id=subject_id):
             m = model.clone()
             m.fit(X[split.train_idx], y[split.train_idx])
             train_score, val_score, test_score = m.eval_metric(split=split, X=X, y=y, metric=metric)

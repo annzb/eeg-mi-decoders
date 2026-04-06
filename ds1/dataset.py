@@ -1,3 +1,4 @@
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -9,13 +10,14 @@ from data.subject import SubjectData
 from ds1.subject import SubjectDataDs1
 
 
+class TrialTimeWindowDs1(Enum):
+    DEFAULT = (0.5, 2.5)
+
+
 class Dataset1(Dataset):
 
-    def trial_start_timestamp(self):
-        return 0.5
-
-    def trial_end_timestamp(self):
-        return 2.5
+    def __init__(self, *args, trial_time_window: TrialTimeWindowDs1 = TrialTimeWindowDs1.DEFAULT, **kwargs):
+        super().__init__(*args, trial_time_window=trial_time_window, **kwargs)
 
     def filename_to_subject_id(self, filename: str) -> str:
         filename = super().filename_to_subject_id(filename)

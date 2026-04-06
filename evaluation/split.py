@@ -1,8 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterator, Optional, Sequence, Tuple
-import uuid
 
 import numpy as np
 
@@ -12,7 +11,6 @@ class Split:
     train_idx: np.ndarray
     val_idx: Optional[np.ndarray] = None
     test_idx: Optional[np.ndarray] = None
-    split_id: uuid.UUID = uuid.uuid4()
 
     def __post_init__(self):
         self._validate_split(self.train_idx, self.val_idx, self.test_idx)
@@ -98,7 +96,7 @@ class RepeatedSubsetCrossval(Splitter):
                 train_idx = np.concatenate([pooled[k] for k in subset_ids if k not in test_subset_ids])
                 if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                     continue
-                yield train_idx, None, test_idx
+                yield Split(train_idx, None, test_idx)
             return
 
         subsets_by_class = {c: split_into_subsets(np.where(y == c)[0]) for c in classes}
@@ -117,7 +115,7 @@ class RepeatedSubsetCrossval(Splitter):
 
 
 @dataclass(frozen=True, slots=True)
-class KFoldCrossval(Split):
+class KFoldCrossval(Splitter):
     k: int = 5
 
     def __call__(self, y: np.ndarray, **kwargs) -> Iterator[Split]:
@@ -233,3 +231,57 @@ class RepeatedHoldoutSplit(Splitter):
             if self.require_all_classes_in_train and np.unique(y[train_idx]).size != classes.size:
                 continue
             yield Split(train_idx, val_idx, test_idx)
+
+
+@dataclass(frozen=True, slots=True)
+class PresetSplit(Splitter):
+    trial_subsets: Dict[str, np.ndarray] = field(default_factory=dict)
+    train_label: object = "train"
+    val_label: object = "val"
+    test_label: object = "test"
+
+    def __post_init__(self):
+        if not isinstance(self.trial_subsets, dict) or len(self.trial_subsets) == 0:
+            raise ValueError("trial_subsets must be a non-empty dict")
+        if len({self.train_label, self.val_label, self.test_label}) != 3:
+            raise ValueError("train_label, val_label, and test_label must be distinct")
+
+    def __call__(self, y: np.ndarray, **kwargs) -> Iterator[Split]:
+        y = np.asarray(y)
+        if y.ndim != 1:
+            raise ValueError(f"y must be 1D; got shape={y.shape}")
+
+        subject_id = kwargs.get("subject_id")
+        if subject_id is None:
+            raise ValueError("PresetSplit requires subject_id")
+
+        subject_id = str(subject_id)
+        if subject_id not in self.trial_subsets:
+            raise KeyError(f"No preset trial subsets found for subject {subject_id}")
+
+        subsets = np.asarray(self.trial_subsets[subject_id])
+        if len(subsets) != len(y):
+            raise ValueError(f"trial_subsets length mismatch for subject {subject_id}: {len(subsets)} vs len(y)={len(y)}")
+
+        train_idx = np.flatnonzero(subsets == self.train_label)
+        val_idx = np.flatnonzero(subsets == self.val_label)
+        test_idx = np.flatnonzero(subsets == self.test_label)
+
+        known_mask = (
+            (subsets == self.train_label) |
+            (subsets == self.val_label) |
+            (subsets == self.test_label)
+        )
+        if not np.all(known_mask):
+            unknown = np.unique(subsets[~known_mask])
+            raise ValueError(f"trial_subsets for subject {subject_id} contain unknown labels: {unknown.tolist()}")
+        if train_idx.size == 0:
+            raise ValueError(f"Subject {subject_id} has no train trials")
+
+        val_idx = val_idx if val_idx.size > 0 else None
+        test_idx = test_idx if test_idx.size > 0 else None
+
+        if self.require_all_classes_in_train and np.unique(y[train_idx]).size != np.unique(y).size:
+            raise ValueError(f"Preset train split for subject {subject_id} does not contain all classes")
+
+        yield Split(train_idx=train_idx, val_idx=val_idx, test_idx=test_idx)

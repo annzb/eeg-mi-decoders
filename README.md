@@ -9,20 +9,21 @@ Sources:
 
 ### Data Summary
 
-| Property           | DS1 Value    | DS4 HaLT Value |
-|--------------------|--------------|----------------|
-| N subjects         | 50           | 29             |
-| Total samples      | 10,120       | 27641          |
-| N channels         | 64           | 21             |
-| Trial duration     | 2.0 s        | 0.85 s         |
-| Sampling rate      | 512 Hz       | 200            |
-| Sample size        | 65,536       | 3,570          |
-| Frequency band     | 8–30 Hz      |                |
-| N classes          | 2            | 6              |
+| Property           | DS1                               | DS4 HaLT                      | DS8      |
+|--------------------|-----------------------------------|-------------------------------|----------|
+| N subjects         | 50 (52 recorded, 2 excluded)      | 29 sessions (13 participants) | 14       |
+| Total samples      | 10,120                            | 27,641                        |          |
+| N channels         | 64                                | 21                            |          |
+| Trial duration     | 2.0 s                             | 0.85 s                        | 4.5 s    |
+| Sampling rate      | 512 Hz                            | 200 Hz                        | 500 Hz   |
+| Sample size        | 65,536                            | 3,570                         |          |
+| Frequency band     | 8–30 Hz                           |                               | 0-125 Hz |
+| N classes          | 2                                 | 6                             | 4        |
 
 
 ### Evaluation Summary
-| Metric                               | DS1                | DS4 HaLT                |
-|--------------------------------------|--------------------|-------------------------|
-| Mean Accuracy Per Subject (Baseline) | 67% ± 13.17%       | 57% ± 20%               |
-| Discriminative Subjects (Baseline)   | 73%                | 83%                     |
+
+| Metric                               | DS1                | DS4 HaLT   |
+|--------------------------------------|--------------------|------------|
+| Mean Accuracy Per Subject (Baseline) | 67.46% ± 13.17%    | 57% ± 20%  |
+| Discriminative Subjects (Baseline)   | 76% (38/50)        | N/A        |

@@ -1,9 +1,9 @@
-# classifier.py
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, Type
+from itertools import combinations
+from typing import Any, Type
 
 import numpy as np
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
@@ -209,8 +209,156 @@ class VotingSVMClassifier(Classifier):
         return self.clf_.predict(F)
 
 
+# @dataclass(slots=True)
+# class RLDAClassifier(Classifier):
+#     classes_: np.ndarray | None = None
+#     pair_clfs_: list[LinearDiscriminantAnalysis] | None = None
+#     pair_labels_: list[tuple[object, object]] | None = None
+#     pair_score_ranges_: list[tuple[float, float]] | None = None
+
+#     def clone(self) -> "RLDAClassifier":
+#         return RLDAClassifier()
+
+#     def fit(self, F: np.ndarray, y: np.ndarray):
+#         self._validate_fit_input(F, y)
+#         y = np.asarray(y)
+#         classes = np.unique(y)
+#         if classes.size < 2:
+#             raise ValueError("RLDAClassifier requires at least 2 classes")
+
+#         self.classes_ = classes
+#         self.pair_clfs_ = []
+#         self.pair_labels_ = []
+#         self.pair_score_ranges_ = []
+
+#         for c0, c1 in combinations(classes, 2):
+#             mask = (y == c0) | (y == c1)
+#             F_pair = F[mask]
+#             y_pair = y[mask]
+#             clf = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
+#             clf.fit(F_pair, y_pair)
+#             raw = clf.decision_function(F_pair)
+#             raw = np.asarray(raw, dtype=np.float64).reshape(-1)
+#             lo = float(np.min(raw))
+#             hi = float(np.max(raw))
+#             if not np.isfinite(lo) or not np.isfinite(hi):
+#                 raise ValueError(f"Non-finite RLDA decision values for pair {(c0, c1)!r}")
+
+#             self.pair_clfs_.append(clf)
+#             self.pair_labels_.append((c0, c1))
+#             self.pair_score_ranges_.append((lo, hi))
+
+#         self.clf_ = True
+
+#     @staticmethod
+#     def _scale_to_unit_interval(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
+#         x = np.asarray(x, dtype=np.float64)
+#         if hi <= lo:
+#             return np.full_like(x, 0.5, dtype=np.float64)
+#         out = (x - lo) / (hi - lo)
+#         return np.clip(out, 0.0, 1.0)
+
+#     def decision_scores(self, F: np.ndarray) -> np.ndarray:
+#         self._validate_predict_input(F)
+#         if self.classes_ is None or self.pair_clfs_ is None or self.pair_labels_ is None or self.pair_score_ranges_ is None:
+#             raise RuntimeError("RLDAClassifier is not fitted yet.")
+
+#         class_to_idx = {c: i for i, c in enumerate(self.classes_)}
+#         scores = np.zeros((F.shape[0], self.classes_.size), dtype=np.float64)
+
+#         for clf, (c0, c1), (lo, hi) in zip(self.pair_clfs_, self.pair_labels_, self.pair_score_ranges_):
+#             raw = clf.decision_function(F)
+#             raw = np.asarray(raw, dtype=np.float64).reshape(-1)
+#             p_c1 = self._scale_to_unit_interval(raw, lo, hi)
+#             p_c0 = 1.0 - p_c1
+#             i0 = class_to_idx[c0]
+#             i1 = class_to_idx[c1]
+#             scores[:, i0] += p_c0
+#             scores[:, i1] += p_c1
+
+#         return scores
+
+#     def predict(self, F: np.ndarray) -> np.ndarray:
+#         scores = self.decision_scores(F)
+#         return self.classes_[np.argmax(scores, axis=1)]
+
+
+@dataclass(slots=True)
+class RLDAClassifier(Classifier):
+    classes_: np.ndarray | None = None
+    pair_clfs_: list[LinearDiscriminantAnalysis] | None = None
+    pair_labels_: list[tuple[object, object]] | None = None
+    pair_score_ranges_: list[tuple[float, float]] | None = None
+
+    def clone(self) -> "RLDAClassifier":
+        return RLDAClassifier()
+
+    def fit(self, F: np.ndarray, y: np.ndarray):
+        self._validate_fit_input(F, y)
+        y = np.asarray(y)
+        classes = np.unique(y)
+        if classes.size < 2:
+            raise ValueError("RLDAClassifier requires at least 2 classes")
+
+        self.classes_ = classes
+        self.pair_clfs_ = []
+        self.pair_labels_ = []
+        self.pair_score_ranges_ = []
+
+        for c0, c1 in combinations(classes, 2):
+            mask = (y == c0) | (y == c1)
+            F_pair = F[mask]
+            y_pair = y[mask]
+
+            clf = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
+            clf.fit(F_pair, y_pair)
+
+            raw = np.asarray(clf.decision_function(F_pair), dtype=np.float64).reshape(-1)
+            lo = float(np.min(raw))
+            hi = float(np.max(raw))
+            if not np.isfinite(lo) or not np.isfinite(hi):
+                raise ValueError(f"Non-finite RLDA decision values for pair {(c0, c1)!r}")
+
+            self.pair_clfs_.append(clf)
+            self.pair_labels_.append((c0, c1))
+            self.pair_score_ranges_.append((lo, hi))
+
+        self.clf_ = True
+        return self
+
+    @staticmethod
+    def _scale_to_unit_interval(x: np.ndarray, lo: float, hi: float) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float64)
+        if hi <= lo:
+            return np.full_like(x, 0.5, dtype=np.float64)
+        return np.clip((x - lo) / (hi - lo), 0.0, 1.0)
+
+    def decision_scores(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
+        if self.classes_ is None or self.pair_clfs_ is None or self.pair_labels_ is None or self.pair_score_ranges_ is None:
+            raise RuntimeError("RLDAClassifier is not fitted yet.")
+
+        scores = np.zeros((F.shape[0], self.classes_.size), dtype=np.float64)
+        class_to_idx = {c: i for i, c in enumerate(self.classes_)}
+
+        for clf, (c0, c1), (lo, hi) in zip(self.pair_clfs_, self.pair_labels_, self.pair_score_ranges_):
+            raw = np.asarray(clf.decision_function(F), dtype=np.float64).reshape(-1)
+            s1 = self._scale_to_unit_interval(raw, lo, hi)
+            s0 = 1.0 - s1
+            scores[:, class_to_idx[c0]] += s0
+            scores[:, class_to_idx[c1]] += s1
+
+        return scores
+
+    def predict(self, F: np.ndarray) -> np.ndarray:
+        self._validate_predict_input(F)
+        scores = self.decision_scores(F)
+        return self.classes_[np.argmax(scores, axis=1)]
+
+
 class ClassifierType(Enum):
     LDA = LDAClassifier
+    RLDA = RLDAClassifier
     LOGREG = LogRegClassifier
     LINSVM = LinSVMClassifier
     NEAREST_MEAN = NearestMeanClassifier
