@@ -142,3 +142,21 @@ class Evaluator:
             )
             results.extend(subject_results)
         return results
+
+    def rank_subjects(self, dataset: Dataset, k: int = 5, mode: str = 'test') -> None:
+        if not isinstance(dataset, Dataset):
+            raise ValueError(f"dataset must be a Dataset instance; got {type(dataset)}")
+        if not isinstance(k, int) or k <= 0:
+            raise ValueError(f"k must be a positive int; got {k!r}")
+
+        subjects = dataset.subject_ids()
+        subject_means, _, _ = self.get_model_scores(dataset=dataset, mode=mode)
+        if len(subjects) != len(subject_means):
+            raise ValueError(f"Mismatch between subjects ({len(subjects)}) and scores ({len(subject_means)})")
+
+        order = np.argsort(subject_means)[::-1]
+        top_k = min(k, len(order))
+
+        print(f"Top {top_k} subjects by mean {mode} accuracy:")
+        for rank, idx in enumerate(order[:top_k], start=1):
+            print(f"{rank}. {subjects[idx]}: {subject_means[idx]:.4f}")

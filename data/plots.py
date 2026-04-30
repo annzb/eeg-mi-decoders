@@ -4,7 +4,9 @@ import numpy as np
 
 from matplotlib.patches import Circle
 from scipy.interpolate import griddata
+from scipy.signal import hilbert
 
+from data.preprocess import filter_band_new
 # from evaluation.result import DatasetEvalResult, Score
 
 
@@ -383,5 +385,133 @@ def plot_confusion_matrix(
                     fontsize=9,
                     color="white" if v > thresh else "black",
                 )
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_eeg_rhythm_power(
+    t,
+    sample,
+    title=None,
+    smoothing_s=0.25,
+    include_bands=None,
+    min_cycles=3.0,
+    use_hilbert=True,
+):
+    sample = np.asarray(sample, dtype=float)
+    t = np.asarray(t, dtype=float)
+
+    if sample.ndim != 2:
+        raise ValueError(f"sample must be (n_channels, n_samples); got {sample.shape}")
+    if t.ndim != 1 or t.shape[0] != sample.shape[1]:
+        raise ValueError(
+            f"t must be 1D with length n_samples={sample.shape[1]}; got t.shape={t.shape}"
+        )
+    if t.shape[0] < 2:
+        raise ValueError("Need at least 2 time points to infer sampling rate")
+
+    dt = np.diff(t)
+    if not np.all(np.isfinite(dt)) or np.any(dt <= 0):
+        raise ValueError("t must be strictly increasing and finite")
+    if not np.allclose(dt, dt[0], rtol=1e-3, atol=1e-6):
+        raise ValueError("t must be uniformly sampled")
+
+    sampling_rate = 1.0 / float(dt[0])
+    duration_s = float(t[-1] - t[0])
+    nyq = sampling_rate / 2.0
+
+    band_defs = {
+        "delta":        (0.5, 4.0),
+        "theta":        (4.0, 8.0),
+        "alpha":        (8.0, 13.0),
+        "beta":         (13.0, 30.0),
+        "gamma":        (30.0, 45.0),
+        "low-hg":       (55.0, 80.0),
+        "mid-hg":       (80.0, 100.0),
+        "high-hg":      (100.0, 125.0),
+    }
+    colors = {
+        "delta":        "tab:cyan",
+        "theta":        "tab:blue",
+        "alpha":        "tab:purple",
+        "beta":         "tab:red",
+        "gamma":        "tab:orange",
+        "low-hg":       "tab:pink",
+        "mid-hg":       "tab:olive",
+        "high-hg":      "tab:brown",
+    }
+
+    if include_bands is None:
+        include_bands = list(band_defs.keys())
+    else:
+        unknown = [b for b in include_bands if b not in band_defs]
+        if unknown:
+            raise ValueError(f"Unknown band names: {unknown}")
+
+    # Combine all channels into one regional signal
+    x = np.mean(sample, axis=0)
+
+    # Prepare smoothing
+    if smoothing_s < 0:
+        raise ValueError(f"smoothing_s must be >= 0; got {smoothing_s}")
+    smooth_n = max(1, int(round(smoothing_s * sampling_rate)))
+    smooth_kernel = np.ones(smooth_n, dtype=float) / smooth_n
+
+    valid_bands = []
+    skipped = {}
+
+    for name in include_bands:
+        lo, hi = band_defs[name]
+
+        # Band must fit below Nyquist
+        if hi >= nyq:
+            skipped[name] = f"hi={hi:g} Hz exceeds Nyquist={nyq:.2f} Hz"
+            continue
+
+        # Sample should contain enough cycles of the low cutoff
+        if lo > 0 and duration_s * lo < min_cycles:
+            skipped[name] = (
+                f"duration too short for {min_cycles:g} cycles at {lo:g} Hz"
+            )
+            continue
+
+        valid_bands.append((name, lo, hi))
+
+    if not valid_bands:
+        raise ValueError(
+            "No rhythm bands are valid for this sample. "
+            f"sampling_rate={sampling_rate:.3f} Hz, duration={duration_s:.3f} s"
+        )
+
+    # Use your preprocessing bandpass helper, which expects (N, Ch, Time)
+    x3 = x[None, None, :]  # (1, 1, T)
+
+    plt.figure(figsize=(10, 4.5))
+
+    for name, lo, hi in valid_bands:
+        x_band = filter_band_new(x3, sampling_rate=sampling_rate, lo=lo, hi=hi, order=4)[0, 0]
+
+        if use_hilbert:
+            power = np.abs(hilbert(x_band)) ** 2
+        else:
+            power = x_band ** 2
+
+        if smooth_n > 1:
+            power = np.convolve(power, smooth_kernel, mode="same")
+
+        plt.plot(
+            t,
+            power,
+            linewidth=1.6,
+            label=f"{name} ({lo:g}–{hi:g} Hz)",
+            color=colors.get(name, None),
+        )
+
+    plt.xlabel("Time (s)")
+    plt.ylabel("Power (µV²)")
+    if title:
+        plt.title(title)
+    plt.legend(frameon=False, fontsize="small", ncol=2)
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
     plt.tight_layout()
     plt.show()

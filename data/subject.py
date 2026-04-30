@@ -347,6 +347,14 @@ class SubjectData(ABC):
         title = f"Subject {self._subject_id}. Trial {trial} [{label_name}]"
         plots.plot_eeg_heatmap(t=t, sample=sample, title=title, channel_names=self.channel_names())
 
+    def plot_trial_rhythms(self, trial: int):
+        self._validate_trial(trial=trial)
+        label_name = self.label_names()[self.Y()[trial]]
+        t = np.arange(self._n_samples, dtype=float) / float(self._sampling_rate)
+        sample = self._X[trial, :, :]
+        title = f"Subject {self._subject_id}. Trial {trial} [{label_name}]"
+        plots.plot_eeg_rhythm_power(t=t, sample=sample, title=title)
+
     def print_info(self):
         print(f'Subject ID: {self._subject_id}')
         print(f'sampling_rate: {self._sampling_rate}, n_trials: {self._n_trials}, n_channels: {self._n_channels}, n_samples: {self._n_samples}')
